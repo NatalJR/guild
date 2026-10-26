@@ -1,0 +1,10 @@
+{
+  "name": "guild",
+  "version": "0.1.0",
+  "description": "Delegation guild: project-agnostic investigator/builder/architect/reviewer/security/scribe crew with a per-project charter.",
+  "author": {
+    "name": "NatalJR",
+    "url": "https://github.com/NatalJR"
+  },
+  "hooks": "./hooks/hooks.json"
+}

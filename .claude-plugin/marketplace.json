@@ -1,0 +1,17 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "guild",
+  "description": "Delegation guild: project-agnostic investigator/builder/architect/reviewer/security/scribe crew with a per-project charter.",
+  "owner": {
+    "name": "NatalJR",
+    "url": "https://github.com/NatalJR"
+  },
+  "plugins": [
+    {
+      "name": "guild",
+      "description": "Project-agnostic delegation crew: six agents driven by a per-project charter at .claude/guild.md.",
+      "source": "./",
+      "category": "productivity"
+    }
+  ]
+}
