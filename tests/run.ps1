@@ -8,6 +8,9 @@
 # with [NullString]::Value, since PowerShell turns $null into an empty string on the way to
 # .NET; Windows PowerShell 5.1 cannot hold an empty value, so there the empty plugin option case
 # exercises the unset path. check-context-size.sh has no twin and stays in tests/run.sh only.
+# render-agents cases run against a scratch copy of agents/ (CLAUDE_PLUGIN_ROOT pointed at it),
+# never the repository's files; Reset-Environment also clears every
+# CLAUDE_PLUGIN_OPTION_<AGENT>_MODEL / _EFFORT.
 Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
 
@@ -139,7 +142,7 @@ $CaseKinds = @('exit', 'stderr', 'stderr-equals', 'stdout', 'stdout-lacks', 'std
 
 function New-CaseRecord {
     return @{
-        Name = ''; Hook = ''; Part = $null; Payload = ''; Error = ''
+        Name = ''; Hook = ''; Part = $null; Payload = ''; Error = ''; AgentsCopy = ''
         UserConf = (New-Object System.Collections.Generic.List[string])
         ProjectConf = (New-Object System.Collections.Generic.List[string])
         Env = (New-Object System.Collections.Generic.List[string])
@@ -163,6 +166,7 @@ function Add-CaseField($Record, [string]$Line) {
         'part' { $Record.Part = $value }
         'user-conf' { $Record.UserConf.Add($value) }
         'project-conf' { $Record.ProjectConf.Add($value) }
+        'agents-copy' { $Record.AgentsCopy = $value }
         'env' { $Record.Env.Add($value) }
         'unset' { $Record.Unset.Add($value) }
         'payload' { $Record.Payload = $value }
@@ -221,6 +225,8 @@ function Get-RecordError($Record) {
 function Set-CaseEnvironment($Record) {
     if ($Record.UserConf.Count -gt 0) { Use-UserConf ($Record.UserConf -join $NL) }
     if ($Record.ProjectConf.Count -gt 0) { Use-ProjectConf ($Record.ProjectConf -join $NL) }
+    $failure = Use-CaseAgentsCopy $Record.AgentsCopy
+    if ($failure -ne '') { return $failure }
     foreach ($line in $Record.Env) {
         $equals = $line.IndexOf([char]'=')
         if ($equals -lt 1 -or -not (Test-VariableName $line.Substring(0, $equals))) { return 'env= needs NAME=value, got [' + $line + ']' }
@@ -322,6 +328,57 @@ function Reset-Environment {
     $env:HOME = $FixtureHome
     [System.Environment]::SetEnvironmentVariable('GUILD_HOOK_TRACE', [NullString]::Value)
     [System.Environment]::SetEnvironmentVariable('CLAUDE_PLUGIN_OPTION_GIT_HANDLING', [NullString]::Value)
+    Clear-AgentOptions
+}
+
+function Clear-AgentOptions {
+    foreach ($agent in @('INVESTIGATOR', 'BUILDER', 'ARCHITECT', 'REVIEWER', 'SECURITY', 'SCRIBE')) {
+        foreach ($key in @('MODEL', 'EFFORT')) {
+            [System.Environment]::SetEnvironmentVariable('CLAUDE_PLUGIN_OPTION_' + $agent + '_' + $key, [NullString]::Value)
+        }
+    }
+}
+
+# Points CLAUDE_PLUGIN_ROOT at a scratch root holding a copy of agents/; returns the root.
+function Use-AgentsRoot {
+    $directory = New-ScratchDirectory
+    Copy-Item -LiteralPath (Join-Path $RepoRoot 'agents') -Destination (Join-Path $directory 'agents') -Recurse
+    $env:CLAUDE_PLUGIN_ROOT = $directory
+    return $directory
+}
+
+# VALUE: the agents-copy= setup; empty when done, else the reason.
+function Use-CaseAgentsCopy([string]$Value) {
+    if ($Value -eq '') { return '' }
+    if ($Value -cne 'yes') { return 'agents-copy= takes yes, got [' + $Value + ']' }
+    [void](Use-AgentsRoot)
+    return ''
+}
+
+function Read-FileLines([string]$Path) {
+    return , $Utf8.GetString([System.IO.File]::ReadAllBytes($Path)).Split([char]10)
+}
+
+# ROOT: every line ROOT/agents changed against the repository copy, as `<file> - <old line>`
+# and `<file> + <new line>`, the old lines of a file first (diff order for one hunk).
+function Get-AgentsChanges([string]$Root) {
+    $changes = foreach ($original in [System.IO.Directory]::GetFiles((Join-Path $RepoRoot 'agents'), '*.md')) {
+        $name = [System.IO.Path]::GetFileName($original)
+        Get-LineChanges $name (Read-FileLines $original) (Read-FileLines (Join-Path $Root ('agents/' + $name)))
+    }
+    return (@($changes) -join $NL)
+}
+
+# NAME OLD NEW: the changed lines of one file; a line count mismatch is reported as such.
+function Get-LineChanges([string]$Name, [string[]]$Old, [string[]]$New) {
+    if ($Old.Length -ne $New.Length) { return $Name + ' line count ' + $Old.Length + ' -> ' + $New.Length }
+    $indexes = @(for ($index = 0; $index -lt $Old.Length; $index++) { if ($Old[$index] -cne $New[$index]) { $index } })
+    foreach ($index in $indexes) { $Name + ' - ' + $Old[$index] }
+    foreach ($index in $indexes) { $Name + ' + ' + $New[$index] }
+}
+
+function Get-ByteSize([string]$Path) {
+    return (New-Object System.IO.FileInfo -ArgumentList $Path).Length
 }
 
 function ConvertTo-JsonBackslashes([string]$Text) {
@@ -633,6 +690,45 @@ try {
     Assert-Equal ('head' + $NL + 'negated' + $NL + 'tail') (Invoke-Hook 'session-context' '' @('context/markers.md')).Stdout
     Reset-Environment
 
+    # ------------------------------------------------------------ render-agents
+
+    $builderRendered = 'builder.md - model: opus' + $NL + 'builder.md + model: sonnet'
+    Set-Case 'render-agents: no option set leaves every agent file untouched'
+    $agentsRoot = Use-AgentsRoot
+    Assert-Equal '' ((Invoke-Hook 'render-agents' '').Stdout + (Get-AgentsChanges $agentsRoot))
+    Reset-Environment
+
+    Set-Case 'render-agents: a differing model rewrites only that line'
+    $agentsRoot = Use-AgentsRoot
+    $env:CLAUDE_PLUGIN_OPTION_BUILDER_MODEL = 'sonnet'
+    [void](Invoke-Hook 'render-agents' '')
+    Assert-Equal $builderRendered (Get-AgentsChanges $agentsRoot)
+    Set-Case 'render-agents: the rewritten file keeps every other byte (LF endings included)'
+    Assert-Equal ([string]((Get-ByteSize (Join-Path $RepoRoot 'agents/builder.md')) + 2)) ([string](Get-ByteSize (Join-Path $agentsRoot 'agents/builder.md')))
+    Set-Case 'render-agents: no temp file left in agents/'
+    Assert-Equal '' (@([System.IO.Directory]::GetFiles((Join-Path $agentsRoot 'agents')) | Where-Object { -not $_.EndsWith('.md') }) -join $NL)
+    Set-Case 'render-agents: running again prints nothing'
+    Assert-Equal '' (Invoke-Hook 'render-agents' '').Stdout
+    Set-Case 'render-agents: running again keeps the rendered file'
+    Assert-Equal $builderRendered (Get-AgentsChanges $agentsRoot)
+    Reset-Environment
+
+    Set-Case 'render-agents: model and effort of one agent rewritten in one run'
+    $agentsRoot = Use-AgentsRoot
+    $env:CLAUDE_PLUGIN_OPTION_REVIEWER_MODEL = 'sonnet'
+    $env:CLAUDE_PLUGIN_OPTION_REVIEWER_EFFORT = 'low'
+    [void](Invoke-Hook 'render-agents' '')
+    Assert-Equal ((@('reviewer.md - model: opus', 'reviewer.md - effort: high', 'reviewer.md + model: sonnet', 'reviewer.md + effort: low')) -join $NL) (Get-AgentsChanges $agentsRoot)
+    Reset-Environment
+
+    Set-Case 'render-agents: invalid values leave every agent file untouched'
+    $agentsRoot = Use-AgentsRoot
+    $env:CLAUDE_PLUGIN_OPTION_BUILDER_MODEL = 'opus sonnet'
+    $env:CLAUDE_PLUGIN_OPTION_ARCHITECT_EFFORT = 'extreme'
+    $env:CLAUDE_PLUGIN_OPTION_SCRIBE_MODEL = 'sonnet/;s/^/x/'
+    Assert-Equal '' ((Invoke-Hook 'render-agents' '').Stdout + (Get-AgentsChanges $agentsRoot))
+    Reset-Environment
+
     # ------------------------------------------------------------ hooks.json wiring
 
     $hooksJson = $Utf8.GetString([System.IO.File]::ReadAllBytes((Join-Path $Hooks 'hooks.json')))
@@ -641,12 +737,14 @@ try {
     $polyglotPattern = '"command": "exec sh \\"\$\{CLAUDE_PLUGIN_ROOT\}/hooks/([A-Za-z0-9_-]+)\.sh\\"([^"\\]*)\\n& \\"\$\{CLAUDE_PLUGIN_ROOT\}/hooks/\1\.ps1\\"\2; exit \$LASTEXITCODE"'
     Set-Case 'hooks.json: every command runs an existing sh script'
     Assert-Equal '' (@($wiredScripts | Where-Object { -not [System.IO.File]::Exists((Join-Path $Hooks $_)) }) -join $NL)
-    Set-Case 'hooks.json: six script references found'
-    Assert-Equal '6' ([string]$wiredScripts.Count)
+    Set-Case 'hooks.json: eight script references found'
+    Assert-Equal '8' ([string]$wiredScripts.Count)
     Set-Case 'hooks.json: every command names an existing PowerShell twin'
     Assert-Equal '' (@($wiredTwins | Where-Object { -not [System.IO.File]::Exists((Join-Path $Hooks $_)) }) -join $NL)
-    Set-Case 'hooks.json: six commands, all the sh/PowerShell polyglot'
-    Assert-Equal '6 6' ([string][regex]::Matches($hooksJson, '"command":').Count + ' ' + [regex]::Matches($hooksJson, $polyglotPattern).Count)
+    Set-Case 'hooks.json: eight commands, all the sh/PowerShell polyglot'
+    Assert-Equal '8 8' ([string][regex]::Matches($hooksJson, '"command":').Count + ' ' + [regex]::Matches($hooksJson, $polyglotPattern).Count)
+    Set-Case 'hooks.json: render-agents wired once on SessionStart and once on UserPromptSubmit'
+    Assert-Equal '2' ([string]@($wiredScripts | Where-Object { $_ -ceq 'render-agents.sh' }).Count)
     Set-Case 'hooks.json: no shell field'
     Assert-Equal '0' ([string][regex]::Matches($hooksJson, '"shell"').Count)
 } finally {

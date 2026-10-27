@@ -9,7 +9,9 @@
 # Fixtures under tests/fixtures/** contain emoji bytes on purpose (emoji-scan cases); the
 # repository no-emoji rule exempts that directory. Cases needing a switch override write a
 # temporary guild.conf into a scratch HOME or project directory (never into the fixtures) or
-# export CLAUDE_PLUGIN_OPTION_GIT_HANDLING; reset_env clears both.
+# export CLAUDE_PLUGIN_OPTION_GIT_HANDLING; reset_env clears both. render-agents cases run
+# against a scratch copy of agents/ (CLAUDE_PLUGIN_ROOT pointed at it), never the repository's
+# files; reset_env also clears every CLAUDE_PLUGIN_OPTION_<AGENT>_MODEL / _EFFORT.
 set -u
 
 case "$0" in
@@ -28,6 +30,13 @@ CLAUDE_PROJECT_DIR=$FIXTURE_PROJECT
 HOME=$FIXTURE_HOME
 export CLAUDE_PLUGIN_ROOT CLAUDE_PROJECT_DIR HOME
 unset GUILD_HOOK_TRACE CLAUDE_PLUGIN_OPTION_GIT_HANDLING
+
+unset_agent_options() {
+  for agent_option in INVESTIGATOR BUILDER ARCHITECT REVIEWER SECURITY SCRIBE; do
+    unset "CLAUDE_PLUGIN_OPTION_${agent_option}_MODEL" "CLAUDE_PLUGIN_OPTION_${agent_option}_EFFORT"
+  done
+}
+unset_agent_options
 
 SCRATCH=$(mktemp -d) || exit 1
 trap 'rm -rf "$SCRATCH"' EXIT
@@ -121,6 +130,7 @@ case_reset() {
   CASE_HAS_PART=no
   CASE_USER_CONF=''
   CASE_PROJECT_CONF=''
+  CASE_AGENTS_COPY=''
   CASE_ENV=''
   CASE_UNSET=''
   CASE_PAYLOAD=''
@@ -137,6 +147,7 @@ case_field() {
     'part') CASE_PART=$2; CASE_HAS_PART=yes ;;
     'user-conf') CASE_USER_CONF="$CASE_USER_CONF$2$NL" ;;
     'project-conf') CASE_PROJECT_CONF="$CASE_PROJECT_CONF$2$NL" ;;
+    'agents-copy') CASE_AGENTS_COPY=$2 ;;
     'env') CASE_ENV="$CASE_ENV$2$NL" ;;
     'unset') CASE_UNSET="$CASE_UNSET$2$NL" ;;
     'payload') CASE_PAYLOAD=$2 ;;
@@ -198,12 +209,23 @@ apply_case_setup() {
     cp "$FIXTURE_PROJECT/emoji.md" "$CASE_DIR/emoji.md"
     CLAUDE_PROJECT_DIR=$CASE_DIR
   fi
-  apply_case_lines set "$CASE_ENV" && apply_case_lines unset "$CASE_UNSET"
+  apply_agents_copy && apply_case_lines set "$CASE_ENV" && apply_case_lines unset "$CASE_UNSET"
 }
 
 case_scratch_dir() {
   CASE_DIR="$SCRATCH/shared$CASE_SEQUENCE-$1"
   mkdir -p "$CASE_DIR/.claude"
+}
+
+# agents-copy=yes: CLAUDE_PLUGIN_ROOT pointed at a scratch dir holding a copy of agents/.
+apply_agents_copy() {
+  case "$CASE_AGENTS_COPY" in
+    '') return 0 ;;
+    'yes') ;;
+    *) printf 'agents-copy= takes yes, got [%s]' "$CASE_AGENTS_COPY"; return 1 ;;
+  esac
+  case_scratch_dir agents
+  cp -R "$REPO_ROOT/agents" "$CASE_DIR/agents" && CLAUDE_PLUGIN_ROOT=$CASE_DIR
 }
 
 # MODE LINES: applies each newline-terminated NAME=value (MODE set) or NAME (MODE unset).
@@ -303,6 +325,28 @@ reset_env() {
   HOME=$FIXTURE_HOME
   export CLAUDE_PLUGIN_ROOT CLAUDE_PROJECT_DIR
   unset GUILD_HOOK_TRACE CLAUDE_PLUGIN_OPTION_GIT_HANDLING
+  unset_agent_options
+}
+
+# Points CLAUDE_PLUGIN_ROOT at a scratch root holding a copy of agents/.
+use_agents_root() {
+  new_scratch_dir
+  cp -R "$REPO_ROOT/agents" "$SCRATCH_DIR/agents"
+  CLAUDE_PLUGIN_ROOT=$SCRATCH_DIR
+}
+
+# Prints every line the scratch agents/ changed against the repository copy, as
+# `<file> - <old line>` and `<file> + <new line>` in diff order.
+agents_changes() {
+  for agent_path in "$REPO_ROOT"/agents/*.md; do
+    agent_name=${agent_path##*/}
+    diff "$agent_path" "$SCRATCH_DIR/agents/$agent_name" | sed -n -e "s/^< /$agent_name - /p" -e "s/^> /$agent_name + /p"
+  done
+}
+
+# FILE: byte size of FILE.
+byte_size() {
+  printf '%s' "$(($(wc -c <"$1")))"
 }
 
 # Windows forms of the repository root when running under Git Bash (cygpath present).
@@ -647,6 +691,50 @@ reset_env
 describe 'check-context-size: every part under the limit'
 expect_exit check-context-size.sh 0 ''
 
+# ---------------------------------------------------------------- render-agents
+
+describe 'render-agents: no option set leaves every agent file untouched'
+use_agents_root
+run_context render-agents.sh
+expect_equal '' "$RUN_STDOUT$(agents_changes)"
+reset_env
+
+describe 'render-agents: a differing model rewrites only that line'
+use_agents_root
+CLAUDE_PLUGIN_OPTION_BUILDER_MODEL=sonnet
+export CLAUDE_PLUGIN_OPTION_BUILDER_MODEL
+run_context render-agents.sh
+expect_equal "builder.md - model: opus${NL}builder.md + model: sonnet" "$(agents_changes)"
+describe 'render-agents: the rewritten file keeps every other byte (LF endings included)'
+expect_equal "$(($(byte_size "$REPO_ROOT/agents/builder.md") + 2))" "$(byte_size "$SCRATCH_DIR/agents/builder.md")"
+describe 'render-agents: no temp file left in agents/'
+expect_equal '' "$(ls -A "$SCRATCH_DIR/agents" | grep -v '\.md$')"
+describe 'render-agents: running again prints nothing'
+run_context render-agents.sh
+expect_equal '' "$RUN_STDOUT"
+describe 'render-agents: running again keeps the rendered file'
+expect_equal "builder.md - model: opus${NL}builder.md + model: sonnet" "$(agents_changes)"
+reset_env
+
+describe 'render-agents: model and effort of one agent rewritten in one run'
+use_agents_root
+CLAUDE_PLUGIN_OPTION_REVIEWER_MODEL=sonnet
+CLAUDE_PLUGIN_OPTION_REVIEWER_EFFORT=low
+export CLAUDE_PLUGIN_OPTION_REVIEWER_MODEL CLAUDE_PLUGIN_OPTION_REVIEWER_EFFORT
+run_context render-agents.sh
+expect_equal "reviewer.md - model: opus${NL}reviewer.md - effort: high${NL}reviewer.md + model: sonnet${NL}reviewer.md + effort: low" "$(agents_changes)"
+reset_env
+
+describe 'render-agents: invalid values leave every agent file untouched'
+use_agents_root
+CLAUDE_PLUGIN_OPTION_BUILDER_MODEL='opus sonnet'
+CLAUDE_PLUGIN_OPTION_ARCHITECT_EFFORT=extreme
+CLAUDE_PLUGIN_OPTION_SCRIBE_MODEL='sonnet/;s/^/x/'
+export CLAUDE_PLUGIN_OPTION_BUILDER_MODEL CLAUDE_PLUGIN_OPTION_ARCHITECT_EFFORT CLAUDE_PLUGIN_OPTION_SCRIBE_MODEL
+run_context render-agents.sh
+expect_equal '' "$RUN_STDOUT$(agents_changes)"
+reset_env
+
 # ---------------------------------------------------------------- hooks.json wiring
 
 # Prints every hooks/<name>.sh that a hooks.json command names, one per line.
@@ -675,12 +763,14 @@ missing_hook_files() {
 
 describe 'hooks.json: every command runs an existing sh script'
 expect_equal '' "$(hooks_json_scripts | missing_hook_files)"
-describe 'hooks.json: six script references found'
-expect_equal '6' "$(($(hooks_json_scripts | wc -l)))"
+describe 'hooks.json: eight script references found'
+expect_equal '8' "$(($(hooks_json_scripts | wc -l)))"
 describe 'hooks.json: every command names an existing PowerShell twin'
 expect_equal '' "$(hooks_json_twins | missing_hook_files)"
-describe 'hooks.json: six commands, all the sh/PowerShell polyglot'
-expect_equal '6 6' "$(grep -c '"command":' "$HOOKS/hooks.json") $(count_polyglot_commands)"
+describe 'hooks.json: eight commands, all the sh/PowerShell polyglot'
+expect_equal '8 8' "$(grep -c '"command":' "$HOOKS/hooks.json") $(count_polyglot_commands)"
+describe 'hooks.json: render-agents wired once on SessionStart and once on UserPromptSubmit'
+expect_equal '2' "$(hooks_json_scripts | grep -c '^render-agents\.sh$')"
 describe 'hooks.json: no shell field'
 expect_equal '0' "$(grep -c '"shell"' "$HOOKS/hooks.json")"
 

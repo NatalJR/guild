@@ -14,6 +14,12 @@
             "command": "exec sh \"${CLAUDE_PLUGIN_ROOT}/hooks/session-context.sh\" context/procedure.md\n& \"${CLAUDE_PLUGIN_ROOT}/hooks/session-context.ps1\" context/procedure.md; exit $LASTEXITCODE",
             "timeout": 5,
             "statusMessage": "Loading guild procedure..."
+          },
+          {
+            "type": "command",
+            "command": "exec sh \"${CLAUDE_PLUGIN_ROOT}/hooks/render-agents.sh\"\n& \"${CLAUDE_PLUGIN_ROOT}/hooks/render-agents.ps1\"; exit $LASTEXITCODE",
+            "timeout": 5,
+            "statusMessage": "Rendering guild agent options..."
           }
         ]
       }
@@ -24,6 +30,11 @@
           {
             "type": "command",
             "command": "exec sh \"${CLAUDE_PLUGIN_ROOT}/hooks/prompt-reinforce.sh\"\n& \"${CLAUDE_PLUGIN_ROOT}/hooks/prompt-reinforce.ps1\"; exit $LASTEXITCODE",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "exec sh \"${CLAUDE_PLUGIN_ROOT}/hooks/render-agents.sh\"\n& \"${CLAUDE_PLUGIN_ROOT}/hooks/render-agents.ps1\"; exit $LASTEXITCODE",
             "timeout": 5
           }
         ]

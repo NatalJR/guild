@@ -14,7 +14,7 @@ A private Claude Code plugin owned by NatalJR: a project-agnostic delegation cre
 
 Project knowledge never lives in the plugin. It lives in `<project>/.claude/guild.md` (the charter), which every agent reads first.
 
-Models are pinned per agent:
+Models are pinned per agent (the shipped defaults; see Model and effort per agent to change them):
 
 | Agent | Model |
 |---|---|
@@ -37,6 +37,8 @@ skills/guild/                   DAG.md (binding rules) + the /guild force-the-wa
 skills/git/                     generic git workflow skill, active only with git handling on
 hooks/                          hooks.json + the sh hook scripts and their .ps1 PowerShell twins
 hooks/lib/                      shared libraries (sh, each with a .ps1 twin): payload field access, switch table
+hooks/render-agents.sh          renders the per-agent model and effort options into agents/*.md frontmatter
+hooks/render-agents.ps1         PowerShell twin of render-agents.sh
 hooks/check-context-size.sh     maintenance check: each rendered context part under 9000 bytes
 config/defaults.conf            switch defaults, one commented line per key
 context/always-on.md            style + universal rules, injected at session start
@@ -52,7 +54,7 @@ tests/cases/                    payload-driven cases shared by both runners, one
 
 ## Requirements
 
-POSIX sh is the primary runtime: dash or bash on Linux and macOS, Git Bash's sh on Windows. That is the same requirement as the Claude Code Bash tool, so any machine that runs Claude Code already has it. Nothing else: the sh hooks use only the standard utilities that ship with that shell (`cat`, `sed`, `grep -E`, `tr`, `cut`, `head`, `dd`, `date`, `sort`, `wc`), and no `jq`, `node` or `python`.
+POSIX sh is the primary runtime: dash or bash on Linux and macOS, Git Bash's sh on Windows. That is the same requirement as the Claude Code Bash tool, so any machine that runs Claude Code already has it. Nothing else: the sh hooks use only the standard utilities that ship with that shell (`cat`, `sed`, `grep -E`, `tr`, `cut`, `head`, `dd`, `date`, `sort`, `wc`, `mv`, `rm`), and no `jq`, `node` or `python`.
 
 On Windows without Git Bash, Claude Code runs hook commands through PowerShell, and each hook entry then runs the PowerShell 7 twin of its script (`hooks/<script>.ps1`, also valid Windows PowerShell 5.1 syntax) automatically; there is nothing to configure. The twins use only PowerShell and .NET, read the same switches, and produce the same stdout, stderr and exit codes as the sh scripts; both implementations run the shared cases in `tests/cases/`.
 
@@ -133,6 +135,14 @@ review.security = off
 hooks.emoji_scan = off
 ```
 
+## Model and effort per agent
+
+Each agent's model and reasoning effort are plugin options, not `guild.conf` switches: `investigator_model`, `investigator_effort`, `builder_model`, `builder_effort`, `architect_model`, `architect_effort`, `reviewer_model`, `reviewer_effort`, `security_model`, `security_effort`, `scribe_model`, `scribe_effort`. A model is one of `haiku`, `sonnet`, `opus`, `fable` or `inherit` (the session's model); an effort is one of `low`, `medium`, `high`, `xhigh` or `max`. The defaults are the shipped agent frontmatter: the models in the table above, effort `high` for the architect, reviewer and security agents and `medium` for the rest. The guild never downgrades `guild:security`; lowering its options is your call.
+
+Claude Code shows the options in the prompt when the plugin is installed and later in `/config`, and passes them to the hooks as `CLAUDE_PLUGIN_OPTION_<AGENT>_MODEL` and `CLAUDE_PLUGIN_OPTION_<AGENT>_EFFORT`. A change is rendered on the next prompt (and at every session start) by `hooks/render-agents.sh`: when an option holds an allowed value that differs from the `model:` or `effort:` line in `<plugin root>/agents/<agent>.md`, that frontmatter line is rewritten in place and nothing else in the file changes. The hook then prints `GUILD AGENTS RENDERED: <agent> model=<m> effort=<e>; ... Run /reload-plugins to apply.`; run `/reload-plugins` to load the rewritten agents in the current session. An unset or unknown value is ignored, and the hook writes nowhere outside `agents/`.
+
+The rewrite happens in the installed copy of the plugin. With a directory-source install (a local checkout added as the marketplace, as in Install above), that copy is the checkout itself, so while any option differs from its default the rewritten agent files show as modified in git. Keep those lines out of commits; the render cases in `tests/` expect the shipped frontmatter, so run the suites with the options at their defaults.
+
 ## Git handling (opt-in)
 
 Off by default. While it is off, nothing git-related from the guild applies: the git guard hook exits without checking, the `git` skill stops at its first line, and Step 6 of the procedure routes commits through the project's own git skill or conventions named under the charter's `## Git`.
@@ -171,7 +181,9 @@ Claude Code runs a hook command through `sh -c` on Linux and macOS and through G
 |---|---|---|---|---|
 | SessionStart | `session-context.sh context/always-on.md` | Injects the style and universal rules (sections dropped per switch), plus a `## Guild switches changed` list when any switch differs from its shipped default | Exit 0; never blocks | `style.terse`, `rules.universal` |
 | SessionStart | `session-context.sh context/procedure.md` | Injects the default operating procedure with the plugin root substituted; prints nothing when the default mode is off | Exit 0; never blocks | `procedure.default_mode` and the procedure switches |
+| SessionStart | `render-agents.sh` | Renders the per-agent model and effort options into the agent frontmatter; prints the `GUILD AGENTS RENDERED` notice only when a file changed | Exit 0; never blocks | none (the `<agent>_model` / `<agent>_effort` plugin options) |
 | UserPromptSubmit | `prompt-reinforce.sh` | Per-prompt reinforcement line: six-line reply budget, universal code rules, procedure walk | Exit 0; never blocks | `hooks.prompt_reinforce` |
+| UserPromptSubmit | `render-agents.sh` | Same render as at session start, so an option changed in `/config` applies on the next prompt | Exit 0; never blocks | none (the plugin options) |
 | PreToolUse (`Bash`, `PowerShell`) | `git-guard.sh` | Denies AI attribution in `git commit` and `gh pr create` / `gh pr edit`, a hook bypass (`--no-verify`; `-n` on `git commit`) and a forced push (`--force`, `-f`; `--force-with-lease` allowed) | Exit 2 with the reason on stderr on a match; exit 0 otherwise and whenever the switch is off | `git.handling` |
 | PostToolUse (`Edit`, `Write`) | `emoji-scan.sh` | Scans the written file (inside the project, non-binary) for emoji | Exit 2 naming the first hit line, reported to the agent; exit 0 otherwise | `hooks.emoji_scan` |
 | SubagentStop | `receipt-check.sh` | Checks the receipt contract (first-line terminal token) on `guild:*` agents | Exit 2 blocks the stop once on a malformed receipt; allows otherwise | `hooks.receipt_check` |
