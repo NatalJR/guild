@@ -29,7 +29,7 @@ CLAUDE_PLUGIN_ROOT=$REPO_ROOT
 CLAUDE_PROJECT_DIR=$FIXTURE_PROJECT
 HOME=$FIXTURE_HOME
 export CLAUDE_PLUGIN_ROOT CLAUDE_PROJECT_DIR HOME
-unset GUILD_HOOK_TRACE CLAUDE_PLUGIN_OPTION_GIT_HANDLING
+unset CLAUDE_PLUGIN_OPTION_GIT_HANDLING
 
 unset_agent_options() {
   for agent_option in INVESTIGATOR BUILDER ARCHITECT REVIEWER SECURITY SCRIBE; do
@@ -324,7 +324,7 @@ reset_env() {
   CLAUDE_PROJECT_DIR=$FIXTURE_PROJECT
   HOME=$FIXTURE_HOME
   export CLAUDE_PLUGIN_ROOT CLAUDE_PROJECT_DIR
-  unset GUILD_HOOK_TRACE CLAUDE_PLUGIN_OPTION_GIT_HANDLING
+  unset CLAUDE_PLUGIN_OPTION_GIT_HANDLING
   unset_agent_options
 }
 
@@ -525,19 +525,11 @@ expect_exit receipt-check.sh 0 "$(receipt_payload guild:builder "$large_message"
 describe 'receipt-check: large message without a token blocked'
 expect_exit receipt-check.sh 2 "$(receipt_payload guild:builder "prose first\n$large_message")" 'Receipt contract'
 
-describe 'receipt-check: GUILD_HOOK_TRACE records timestamp and payload excerpt'
-GUILD_HOOK_TRACE="$SCRATCH/trace.log"
-export GUILD_HOOK_TRACE
-run_hook receipt-check.sh "$(receipt_payload guild:builder 'verified: ok')"
-trace_text=$(cat "$GUILD_HOOK_TRACE" 2>/dev/null)
-if contains "$trace_text" 'SubagentStop' && contains "$trace_text" '"agent_type":"guild:builder"'; then pass; else fail "trace: $trace_text"; fi
-reset_env
-
 # ---------------------------------------------------------------- config
 
 describe 'config: fixture project carries no guild.conf'
 expect_equal 'absent' "$([ -e "$FIXTURE_PROJECT/.claude/guild.conf" ] && printf present || printf absent)"
-describe 'config: defaults declare fifteen keys, fourteen on'
+describe 'config: defaults declare fourteen keys, all on'
 expect_equal '14' "$(config_query count_on_switches)"
 describe 'config: shipped defaults report no changed keys'
 expect_equal '' "$(config_query guild_changed_keys)"
@@ -580,13 +572,12 @@ expect_equal 'hooks.emoji_scan=off review.security=off' "$(config_query guild_ch
 reset_env
 describe 'config: guild_changed_keys sorted and space separated'
 use_user_conf "style.terse = off
-git.handling = on
 docs.sync = off
 hooks.receipt_check = off"
-expect_equal 'docs.sync=off git.handling=on hooks.receipt_check=off style.terse=off' "$(config_query guild_changed_keys)"
+expect_equal 'docs.sync=off hooks.receipt_check=off style.terse=off' "$(config_query guild_changed_keys)"
 reset_env
 describe 'config: a key set to its shipped default is not reported as changed'
-use_user_conf "git.handling = off
+use_user_conf "docs.sync = on
 review.security = on"
 expect_equal '' "$(config_query guild_changed_keys)"
 reset_env
@@ -629,21 +620,30 @@ expect_option_state false off
 expect_option_state 0 off
 expect_option_state '' off
 expect_option_state maybe off
-describe 'config: git.handling on in the project conf applies when the plugin option is unset'
+describe 'config: git.handling on in the project conf is ignored'
 use_project_conf 'git.handling = on'
-expect_equal 'on' "$(switch_state git.handling)"
-describe 'config: plugin option false wins over the project conf'
+expect_equal 'off' "$(switch_state git.handling)"
+describe 'config: git.handling in the project conf reports no changed keys'
+expect_equal '' "$(config_query guild_changed_keys)"
+describe 'config: plugin option false leaves git.handling off'
 CLAUDE_PLUGIN_OPTION_GIT_HANDLING=false
 export CLAUDE_PLUGIN_OPTION_GIT_HANDLING
 expect_equal 'off' "$(switch_state git.handling)"
 reset_env
-describe 'config: plugin option true wins over the user conf'
+describe 'config: plugin option true turns git.handling on despite the user conf'
 use_user_conf 'git.handling = off'
 CLAUDE_PLUGIN_OPTION_GIT_HANDLING=true
 export CLAUDE_PLUGIN_OPTION_GIT_HANDLING
 expect_equal 'on' "$(switch_state git.handling)"
 describe 'config: plugin option sets git.handling only'
 expect_equal 'git.handling=on' "$(config_query guild_changed_keys)"
+reset_env
+describe 'config: git.handling declared in the defaults file is ignored'
+new_scratch_dir
+mkdir -p "$SCRATCH_DIR/config"
+printf '%s\n' 'git.handling = on' 'review.security = on' >"$SCRATCH_DIR/config/defaults.conf"
+CLAUDE_PLUGIN_ROOT=$SCRATCH_DIR
+expect_equal 'off' "$(switch_state git.handling)"
 reset_env
 
 # ---------------------------------------------------------------- session-context
@@ -663,7 +663,8 @@ if [ -n "$WINDOWS_ROOT_BACKSLASH" ]; then
 fi
 
 describe 'session-context: every switch on leaves no marker lines in the procedure'
-use_user_conf "$(sed -n 's/= off$/= on/p' "$REPO_ROOT/config/defaults.conf")"
+CLAUDE_PLUGIN_OPTION_GIT_HANDLING=true
+export CLAUDE_PLUGIN_OPTION_GIT_HANDLING
 expect_stdout_lacks '{{' session-context.sh context/procedure.md
 reset_env
 
@@ -723,6 +724,18 @@ CLAUDE_PLUGIN_OPTION_REVIEWER_EFFORT=low
 export CLAUDE_PLUGIN_OPTION_REVIEWER_MODEL CLAUDE_PLUGIN_OPTION_REVIEWER_EFFORT
 run_context render-agents.sh
 expect_equal "reviewer.md - model: opus${NL}reviewer.md - effort: high${NL}reviewer.md + model: sonnet${NL}reviewer.md + effort: low" "$(agents_changes)"
+reset_env
+
+describe 'render-agents: a failing agent is skipped and the others still render'
+use_agents_root
+mkdir "$SCRATCH_DIR/agents/builder.md.render"
+CLAUDE_PLUGIN_OPTION_BUILDER_MODEL=sonnet
+CLAUDE_PLUGIN_OPTION_REVIEWER_MODEL=sonnet
+export CLAUDE_PLUGIN_OPTION_BUILDER_MODEL CLAUDE_PLUGIN_OPTION_REVIEWER_MODEL
+run_context render-agents.sh
+expect_equal "reviewer.md - model: opus${NL}reviewer.md + model: sonnet" "$(agents_changes)"
+describe 'render-agents: the notice lists only the agents rendered'
+expect_equal 'GUILD AGENTS RENDERED: reviewer model=sonnet effort=high. Run /reload-plugins to apply.' "$RUN_STDOUT"
 reset_env
 
 describe 'render-agents: invalid values leave every agent file untouched'

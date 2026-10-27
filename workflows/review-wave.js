@@ -19,8 +19,8 @@
 //                            // and contain no `|`, `;`, `&`, `>`, `<`, backtick, `$(`, line break, or file-writing `--output`/`-o` option
 //                            // (attached `-ofile` included; `--output-indicator-*` is over-rejected by design)
 //   securityScope?: string,  // surfaces the security gate covers; default: the Step 5 triggers plus the charter `## Security`
-//   effort?: string          // norms and correctness effort: low, medium, high, xhigh, max; default high;
-//                            // every guild:security call runs at high regardless
+//   effort?: string          // correctness effort: low, medium, high, xhigh, max; default high; the guild:* agents
+//                            // (norms, security, every refuter) run at the effort of their own frontmatter
 // }
 //
 // Result: { dimensions: [{ key, confirmed, refutedCount, unverified }], totals, blocking } or { error }.
@@ -28,6 +28,10 @@
 // `totals.dimensionsDropped` names every dimension whose reviewer died.
 // `blocking` is true when a confirmed or unverified security finding is red or yellow,
 // and also when the security dimension itself was dropped (the gate did not run).
+//
+// The review switches (review.norms, review.correctness, review.security) are not read here:
+// the workflow always runs every dimension it defines. With a switch off, the main thread
+// passes only the dimensions you want by dispatching them itself instead of this workflow.
 
 export const meta = {
   name: 'review-wave',
@@ -41,8 +45,8 @@ export const meta = {
 // twin: workflows/cleanup-audit.js (keep both copies identical)
 const SECURITY_DIMENSION = 'security'
 const SECURITY_AGENT = 'guild:security'
-// guild:security is never downgraded (README.md agents table): every security call runs at high effort, whatever args.effort asks.
-const SECURITY_EFFORT = 'high'
+// guild:* agents run at the effort of their own frontmatter (the per-agent plugin options), so no agent() call
+// with a guild:* agentType passes effort; guild:security is never downgraded (README.md agents table).
 const TEXT = { type: 'string' }
 const SEVERITY = { type: 'string', enum: ['red', 'yellow', 'blue', 'question'] }
 
@@ -94,12 +98,8 @@ function findingsSchema(dimension) {
 }
 
 function refuteLens(isSecurity) {
-  if (isSecurity) return { agentType: SECURITY_AGENT, effort: SECURITY_EFFORT, rules: SECURITY_REFUTE_RULES }
-  return { agentType: 'guild:reviewer', effort: 'medium', rules: REFUTE_RULES }
-}
-
-function effortFor(agentType, requested) {
-  return agentType === SECURITY_AGENT ? SECURITY_EFFORT : requested
+  if (isSecurity) return { agentType: SECURITY_AGENT, rules: SECURITY_REFUTE_RULES }
+  return { agentType: 'guild:reviewer', rules: REFUTE_RULES }
 }
 
 function parseArgs(raw) {
@@ -212,10 +212,10 @@ function find(dimension, effort, diffCommand) {
   const options = {
     label: `review:${dimension.key}`,
     phase: 'Review',
-    effort: effortFor(dimension.agentType, effort),
     schema: findingsSchema(dimension.key)
   }
   if (dimension.agentType) options.agentType = dimension.agentType
+  else options.effort = effort
   return agent(findingsPrompt(dimension, diffCommand), options)
 }
 
@@ -225,7 +225,6 @@ function refute(finding, dimension, diffCommand) {
     label: `refute:${dimension.key}:${locate(finding)}`,
     phase: 'Verify',
     agentType: lens.agentType,
-    effort: lens.effort,
     schema: VERDICT
   })
 }

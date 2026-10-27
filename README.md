@@ -2,7 +2,7 @@
 
 ## What it is
 
-A private Claude Code plugin owned by NatalJR: a project-agnostic delegation crew. It ships:
+A Claude Code plugin owned by NatalJR: a project-agnostic delegation crew. It ships:
 
 - Six agents: `guild:investigator`, `guild:builder`, `guild:architect`, `guild:reviewer`, `guild:security`, `guild:scribe`.
 - A default operating procedure (`context/procedure.md`), injected at session start, so every coding request walks the delegation DAG without a slash command: classify, investigate, scope gate, design gate, implement, review, report. `skills/guild/DAG.md` carries the node rules, dispatch modes, cleanup-pass and docs-sync procedures and the parallel-wave contracts. `/guild <task>` only forces the walk on a request that looks trivial.
@@ -32,6 +32,7 @@ The rationale is cost tiering (cheap scouting, mid-cost implementation, the stro
 ```
 .claude-plugin/plugin.json      plugin manifest
 .claude-plugin/marketplace.json local marketplace entry
+.claude/guild.md                charter of this repository (verify commands, areas, rules)
 agents/                         the six agent definitions
 skills/guild/                   DAG.md (binding rules) + the /guild force-the-walk skill
 skills/git/                     generic git workflow skill, active only with git handling on
@@ -50,20 +51,24 @@ workflows/review-wave.js        /guild:review-wave: pre-commit review wave over 
 tests/run.sh                    hook contract suite (sh tests/run.sh), fixtures under tests/fixtures/
 tests/run.ps1                   the same contract for the PowerShell twins (pwsh -NoProfile -File tests/run.ps1)
 tests/cases/                    payload-driven cases shared by both runners, one file per hook (format in each file)
+LICENSE                         license
+.gitattributes                  LF line endings for every text file (sh breaks on CRLF)
 ```
 
 ## Requirements
 
-POSIX sh is the primary runtime: dash or bash on Linux and macOS, Git Bash's sh on Windows. That is the same requirement as the Claude Code Bash tool, so any machine that runs Claude Code already has it. Nothing else: the sh hooks use only the standard utilities that ship with that shell (`cat`, `sed`, `grep -E`, `tr`, `cut`, `head`, `dd`, `date`, `sort`, `wc`, `mv`, `rm`), and no `jq`, `node` or `python`.
+POSIX sh is the primary runtime: dash or bash on Linux and macOS, Git Bash's sh on Windows. That is the same requirement as the Claude Code Bash tool, so any machine that runs Claude Code already has it. Nothing else: the sh hooks use only the standard utilities that ship with that shell (`cat`, `sed`, `grep -E`, `tr`, `cut`, `head`, `sort`, `wc`, `mv`, `rm`), and no `jq`, `node` or `python`.
 
 On Windows without Git Bash, Claude Code runs hook commands through PowerShell, and each hook entry then runs the PowerShell 7 twin of its script (`hooks/<script>.ps1`, also valid Windows PowerShell 5.1 syntax) automatically; there is nothing to configure. The twins use only PowerShell and .NET, read the same switches, and produce the same stdout, stderr and exit codes as the sh scripts; both implementations run the shared cases in `tests/cases/`.
+
+That fallback needs PowerShell 7 (`pwsh`) installed, which the harness prefers over Windows PowerShell. On that path the first line of each hook command (`exec sh ...`) prints a harmless `exec is not recognized` error to stderr before the twin runs (see Hooks).
 
 ## Install
 
 Local path, for development:
 
 ```bash
-claude plugin marketplace add E:/dev/guild
+claude plugin marketplace add <path to your checkout>
 ```
 
 Then, inside Claude Code:
@@ -98,7 +103,7 @@ Update with `/plugin update guild`.
 
 ## Configuration
 
-Every switch is on by default except `git.handling`, which is opt-in (see Git handling). Three files are read in order, and a later file wins; for `git.handling` the plugin option, when set, is applied after them and wins:
+Every switch is on by default. Three files are read in order, and a later file wins (git handling is not a switch in these files: the plugin option is its only control, see Git handling):
 
 1. `<plugin root>/config/defaults.conf`: the shipped defaults; it also declares the known keys.
 2. `~/.claude/guild.conf`: user overrides.
@@ -107,6 +112,8 @@ Every switch is on by default except `git.handling`, which is opt-in (see Git ha
 Grammar: one `key = value` per line, spaces around `=` optional. Values are `on`, `off`, `true`, `false`, `yes` or `no`, in any case; keys are lowercase, exactly as listed below. Blank lines and lines starting with `#` are comments. A malformed line (a trailing `# comment` after the value included), a key the defaults file does not declare, and a missing file are all ignored silently. Values are only matched against that grammar, never expanded or executed.
 
 When any switch differs from its shipped default, the always-on context ends with a `## Guild switches changed` section listing each such switch as `key=value`, comma separated (for example `git.handling=on, review.security=off`), so the session knows what departs from the defaults; with the shipped defaults the section is absent. If `config/defaults.conf` is missing, every key reads as on except `git.handling`, which stays off unless the plugin option turns it on. The `procedure.*`, `review.*` and `docs.sync` switches remove the matching text from the injected procedure, and `git.handling` picks the Step 6 commit sentence; `skills/guild/DAG.md` itself is not templated.
+
+The workflows (`workflows/*.js`) ignore the review switches: they always run every dimension they define. With a review switch off, pass only the dimensions you want through the main thread, which dispatches them itself instead of running the workflow.
 
 | Key | Default | Effect of off |
 |---|---|---|
@@ -124,7 +131,6 @@ When any switch differs from its shipped default, the always-on context ends wit
 | `hooks.prompt_reinforce` | on | No per-prompt reinforcement line |
 | `hooks.emoji_scan` | on | Emoji in written files are no longer rejected |
 | `hooks.receipt_check` | on | Guild subagents may stop without a terminal token on line 1 |
-| `git.handling` | off | No guild `git` skill and no git guard; the project's own git conventions apply (see Git handling) |
 
 Example, `<project>/.claude/guild.conf` for a project whose security review and emoji policy live elsewhere:
 
@@ -139,7 +145,7 @@ hooks.emoji_scan = off
 
 Each agent's model and reasoning effort are plugin options, not `guild.conf` switches: `investigator_model`, `investigator_effort`, `builder_model`, `builder_effort`, `architect_model`, `architect_effort`, `reviewer_model`, `reviewer_effort`, `security_model`, `security_effort`, `scribe_model`, `scribe_effort`. A model is one of `haiku`, `sonnet`, `opus`, `fable` or `inherit` (the session's model); an effort is one of `low`, `medium`, `high`, `xhigh` or `max`. The defaults are the shipped agent frontmatter: the models in the table above, effort `high` for the architect, reviewer and security agents and `medium` for the rest. The guild never downgrades `guild:security`; lowering its options is your call.
 
-Claude Code shows the options in the prompt when the plugin is installed and later in `/config`, and passes them to the hooks as `CLAUDE_PLUGIN_OPTION_<AGENT>_MODEL` and `CLAUDE_PLUGIN_OPTION_<AGENT>_EFFORT`. A change is rendered on the next prompt (and at every session start) by `hooks/render-agents.sh`: when an option holds an allowed value that differs from the `model:` or `effort:` line in `<plugin root>/agents/<agent>.md`, that frontmatter line is rewritten in place and nothing else in the file changes. The hook then prints `GUILD AGENTS RENDERED: <agent> model=<m> effort=<e>; ... Run /reload-plugins to apply.`; run `/reload-plugins` to load the rewritten agents in the current session. An unset or unknown value is ignored, and the hook writes nowhere outside `agents/`.
+Claude Code shows the options in the prompt when the plugin is installed and later in `/config`, and passes them to the hooks as `CLAUDE_PLUGIN_OPTION_<AGENT>_MODEL` and `CLAUDE_PLUGIN_OPTION_<AGENT>_EFFORT`. A change is rendered on the next prompt (and at every session start) by `hooks/render-agents.sh`: when an option holds an allowed value that differs from the `model:` or `effort:` line in `<plugin root>/agents/<agent>.md`, that frontmatter line is rewritten in place and nothing else in the file changes. The hook then prints `GUILD AGENTS RENDERED: <agent> model=<m> effort=<e>; ... Run /reload-plugins to apply.`; run `/reload-plugins` to load the rewritten agents in the current session. An unset or unknown value is ignored, and the hook writes nowhere outside `agents/`. An agent whose rewrite fails is skipped, the others still render, and the notice lists only the agents rendered. The workflows pass no effort to `guild:*` agents, so these options also hold inside a workflow; only the default correctness agent of `review-wave` takes the workflow's `effort` argument.
 
 The rewrite happens in the installed copy of the plugin. With a directory-source install (a local checkout added as the marketplace, as in Install above), that copy is the checkout itself, so while any option differs from its default the rewritten agent files show as modified in git. Keep those lines out of commits; the render cases in `tests/` expect the shipped frontmatter, so run the suites with the options at their defaults.
 
@@ -158,7 +164,7 @@ On, three things change:
 
   The guard reads the command text only: flags inside quoted spans, bundled short flags (`-nm`), `+branch` refspecs, git options before the subcommand, and attribution supplied through files or environment variables are not detected.
 
-To enable it, answer the prompt Claude Code shows when the plugin is enabled, or change "Git handling" later in `/config`. Claude Code passes the option to the hooks as `CLAUDE_PLUGIN_OPTION_GIT_HANDLING` and into the skill as `${user_config.git_handling}`. `git.handling = on` in a `guild.conf` also turns on the guard and the Step 6 wording, but the plugin option, when set, is applied after every conf file and wins; the skill reads the plugin option only.
+To enable it, answer the prompt Claude Code shows when the plugin is enabled, or change "Git handling" later in `/config`. Claude Code passes the option to the hooks as `CLAUDE_PLUGIN_OPTION_GIT_HANDLING` and into the skill as `${user_config.git_handling}`. The plugin option is the only switch: a `git.handling` line in any `guild.conf`, the shipped defaults included, is ignored.
 
 ## Priority facts
 
@@ -184,7 +190,7 @@ Claude Code runs a hook command through `sh -c` on Linux and macOS and through G
 | SessionStart | `render-agents.sh` | Renders the per-agent model and effort options into the agent frontmatter; prints the `GUILD AGENTS RENDERED` notice only when a file changed | Exit 0; never blocks | none (the `<agent>_model` / `<agent>_effort` plugin options) |
 | UserPromptSubmit | `prompt-reinforce.sh` | Per-prompt reinforcement line: six-line reply budget, universal code rules, procedure walk | Exit 0; never blocks | `hooks.prompt_reinforce` |
 | UserPromptSubmit | `render-agents.sh` | Same render as at session start, so an option changed in `/config` applies on the next prompt | Exit 0; never blocks | none (the plugin options) |
-| PreToolUse (`Bash`, `PowerShell`) | `git-guard.sh` | Denies AI attribution in `git commit` and `gh pr create` / `gh pr edit`, a hook bypass (`--no-verify`; `-n` on `git commit`) and a forced push (`--force`, `-f`; `--force-with-lease` allowed) | Exit 2 with the reason on stderr on a match; exit 0 otherwise and whenever the switch is off | `git.handling` |
+| PreToolUse (`Bash`, `PowerShell`) | `git-guard.sh` | Denies AI attribution in `git commit` and `gh pr create` / `gh pr edit`, a hook bypass (`--no-verify`; `-n` on `git commit`) and a forced push (`--force`, `-f`; `--force-with-lease` allowed) | Exit 2 with the reason on stderr on a match; exit 0 otherwise and whenever the switch is off | `git.handling` (plugin option only) |
 | PostToolUse (`Edit`, `Write`) | `emoji-scan.sh` | Scans the written file (inside the project, non-binary) for emoji | Exit 2 naming the first hit line, reported to the agent; exit 0 otherwise | `hooks.emoji_scan` |
 | SubagentStop | `receipt-check.sh` | Checks the receipt contract (first-line terminal token) on `guild:*` agents | Exit 2 blocks the stop once on a malformed receipt; allows otherwise | `hooks.receipt_check` |
 

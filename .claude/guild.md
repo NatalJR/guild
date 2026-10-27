@@ -2,13 +2,13 @@
 
 ## Identity
 
-guild: a project-agnostic Claude Code plugin (agents, the guild and git skills, POSIX sh hooks, injected context with switches, two workflows, charter convention). Repository `E:\dev\guild`, GitHub `NatalJR/guild`. Runtime for hooks: POSIX sh (dash or bash on Linux and macOS, Git Bash's sh on Windows), with a PowerShell 7 fallback implementation used by the harness only when Git Bash is absent on Windows; both implementations run the same shared test cases. No package manager, no dependencies, no build step.
+guild: a project-agnostic Claude Code plugin (agents, the guild and git skills, POSIX sh hooks, injected context with switches, two workflows, charter convention). GitHub `NatalJR/guild`; this charter applies to any checkout. Runtime for hooks: POSIX sh (dash or bash on Linux and macOS, Git Bash's sh on Windows), with a PowerShell 7 fallback implementation used by the harness only when Git Bash is absent on Windows; both implementations run the same shared test cases. No package manager, no dependencies, no build step.
 
 ## Verify
 
 ```bash
 sh tests/run.sh                                                    # hook contract suite on the host sh (Git Bash here); the lint gate
-wsl -e sh -c 'cd /mnt/e/dev/guild && sh tests/run.sh'               # same suite under dash on WSL Ubuntu (strict POSIX); both must pass before a commit
+wsl -e sh -c 'cd "$(wslpath -a .)" && sh tests/run.sh'              # same suite under dash on WSL Ubuntu (strict POSIX), from the checkout; both must pass before a commit
 pwsh -NoProfile -File tests/run.ps1                                # PowerShell 7 fallback implementations, same shared cases
 env -u CLAUDECODE claude plugin validate .                         # manifest and layout validation
 sh hooks/check-context-size.sh                                   # every rendered context part stays under 9000 bytes

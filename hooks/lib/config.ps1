@@ -6,11 +6,10 @@
 # around `=`, keys matching ^[a-z][a-z0-9_.]*$, values on|off|true|false|yes|no in any case.
 # Any other line (inline comments included) is ignored silently. The defaults file declares the
 # known keys; a key the defaults file does not declare is ignored in the user and project files
-# and reads as on, except git.handling, which reads as off (also when the defaults file is missing).
-# Lines are only matched against that grammar, never expanded or executed.
-# The plugin option CLAUDE_PLUGIN_OPTION_GIT_HANDLING (install prompt or /config) is applied
-# after the three files and wins for git.handling: true|1|on|yes in any case is on, any other
-# value is off.
+# and reads as on. Lines are only matched against that grammar, never expanded or executed.
+# git.handling is not a conf key: a line for it is ignored in every file, the defaults file
+# included. The plugin option CLAUDE_PLUGIN_OPTION_GIT_HANDLING (install prompt or /config) is
+# its only source: true|1|on|yes in any case is on, any other value is off, unset reads as off.
 # When CLAUDE_PLUGIN_ROOT is unset the root is the directory two levels above this file.
 # The home directory is HOME, as in the sh twin; when HOME is unset (the usual case on Windows
 # outside Git Bash) it is the user profile directory, so ~/.claude/guild.conf is still read.
@@ -48,18 +47,12 @@ function Get-GuildSwitch([string]$Key) {
 # space separated; empty when every key holds its default.
 function Get-GuildChangedKeys {
     $keys = New-Object System.Collections.Generic.List[string]
-    $entries = New-Object System.Collections.Generic.List[string]
     foreach ($key in $GUILD_SWITCHES.Keys) {
-        $value = $GUILD_SWITCHES[$key]
-        if ($value -cne (Get-GuildTableValue $GUILD_DEFAULTS $key)) {
-            $keys.Add($key)
-            $entries.Add($key + '=' + $value)
-        }
+        if ($GUILD_SWITCHES[$key] -cne (Get-GuildTableValue $GUILD_DEFAULTS $key)) { $keys.Add($key) }
     }
     $sortKeys = $keys.ToArray()
-    $sortEntries = $entries.ToArray()
-    [System.Array]::Sort($sortKeys, $sortEntries, [System.StringComparer]::Ordinal)
-    return ($sortEntries -join ' ')
+    [System.Array]::Sort($sortKeys, [System.StringComparer]::Ordinal)
+    return ((@($sortKeys) | ForEach-Object { $_ + '=' + $GUILD_SWITCHES[$_] }) -join ' ')
 }
 
 # Splits TEXT the way a `while read -r line || [ -n "$line" ]` loop does: on LF only, a final
@@ -117,7 +110,8 @@ function Add-GuildConfigLine([string]$Line, [string]$Mode) {
     if ($equals -lt 0) { return }
     $key = Get-GuildTrimmed $text.Substring(0, $equals)
     $state = ConvertTo-GuildState (Get-GuildTrimmed $text.Substring($equals + 1))
-    if (-not (Test-GuildKey $key) -or $null -eq $state) { return }
+    # git.handling comes from the plugin option only.
+    if (-not (Test-GuildKey $key) -or $null -eq $state -or $key -ceq 'git.handling') { return }
     if (-not $GUILD_SWITCHES.Contains($key) -and $Mode -cne 'declare') { return }
     $GUILD_SWITCHES[$key] = $state
 }

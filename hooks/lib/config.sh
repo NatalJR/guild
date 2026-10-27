@@ -5,11 +5,10 @@
 # around `=`, keys matching ^[a-z][a-z0-9_.]*$, values on|off|true|false|yes|no in any case.
 # Any other line (inline comments included) is ignored silently. The defaults file declares the
 # known keys; a key the defaults file does not declare is ignored in the user and project files
-# and reads as on, except git.handling, which reads as off (also when the defaults file is missing).
-# Lines are only matched against that grammar, never expanded or executed.
-# The plugin option CLAUDE_PLUGIN_OPTION_GIT_HANDLING (install prompt or /config) is applied
-# after the three files and wins for git.handling: true|1|on|yes in any case is on, any other
-# value is off.
+# and reads as on. Lines are only matched against that grammar, never expanded or executed.
+# git.handling is not a conf key: a line for it is ignored in every file, the defaults file
+# included. The plugin option CLAUDE_PLUGIN_OPTION_GIT_HANDLING (install prompt or /config) is
+# its only source: true|1|on|yes in any case is on, any other value is off, unset reads as off.
 # When CLAUDE_PLUGIN_ROOT is unset the root is derived from the sourcing script ($0), which
 # sits one level below the plugin root (hooks/*.sh; the test runner in tests/ likewise).
 set -u
@@ -89,6 +88,8 @@ _guild_config_read() {
 
 _guild_config_apply() {
   _guild_config_parse "$1" || return 0
+  # git.handling comes from the plugin option only.
+  [ "$_guild_key" != git.handling ] || return 0
   _guild_switch_known "$_guild_key" || [ "$_guild_config_mode" = declare ] || return 0
   _guild_switch_store "$_guild_key" "$_guild_state"
 }

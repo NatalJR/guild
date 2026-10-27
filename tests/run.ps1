@@ -326,7 +326,6 @@ function Reset-Environment {
     $env:CLAUDE_PLUGIN_ROOT = $RepoRoot
     $env:CLAUDE_PROJECT_DIR = $FixtureProject
     $env:HOME = $FixtureHome
-    [System.Environment]::SetEnvironmentVariable('GUILD_HOOK_TRACE', [NullString]::Value)
     [System.Environment]::SetEnvironmentVariable('CLAUDE_PLUGIN_OPTION_GIT_HANDLING', [NullString]::Value)
     Clear-AgentOptions
 }
@@ -558,21 +557,13 @@ try {
     Set-Case 'receipt-check: large message without a token blocked'
     Assert-Exit 'receipt-check' 2 (New-ReceiptPayload 'guild:builder' ('prose first\n' + $largeMessage)) 'Receipt contract'
 
-    Set-Case 'receipt-check: GUILD_HOOK_TRACE records timestamp and payload excerpt'
-    $env:GUILD_HOOK_TRACE = Join-Path $Scratch 'trace.log'
-    [void](Invoke-Hook 'receipt-check' (New-ReceiptPayload 'guild:builder' 'verified: ok'))
-    $traceText = ''
-    if ([System.IO.File]::Exists($env:GUILD_HOOK_TRACE)) { $traceText = $Utf8.GetString([System.IO.File]::ReadAllBytes($env:GUILD_HOOK_TRACE)) }
-    if ($traceText.Contains('SubagentStop') -and $traceText.Contains('"agent_type":"guild:builder"')) { Add-Pass } else { Add-Failure ('trace: ' + $traceText) }
-    Reset-Environment
-
     # ------------------------------------------------------------ config
 
     Set-Case 'config: fixture project carries no guild.conf'
     $fixtureConf = 'absent'
     if (Test-Path -LiteralPath (Join-Path $FixtureProject '.claude/guild.conf')) { $fixtureConf = 'present' }
     Assert-Equal 'absent' $fixtureConf
-    Set-Case 'config: defaults declare fifteen keys, fourteen on'
+    Set-Case 'config: defaults declare fourteen keys, all on'
     Assert-Equal '14' (Get-OnSwitchCount)
     Set-Case 'config: shipped defaults report no changed keys'
     Assert-Equal '' (Get-ChangedKeys)
@@ -606,11 +597,11 @@ try {
     Assert-Equal 'hooks.emoji_scan=off review.security=off' (Get-ChangedKeys)
     Reset-Environment
     Set-Case 'config: guild_changed_keys sorted and space separated'
-    Use-UserConf (@('style.terse = off', 'git.handling = on', 'docs.sync = off', 'hooks.receipt_check = off') -join $NL)
-    Assert-Equal 'docs.sync=off git.handling=on hooks.receipt_check=off style.terse=off' (Get-ChangedKeys)
+    Use-UserConf (@('style.terse = off', 'docs.sync = off', 'hooks.receipt_check = off') -join $NL)
+    Assert-Equal 'docs.sync=off hooks.receipt_check=off style.terse=off' (Get-ChangedKeys)
     Reset-Environment
     Set-Case 'config: a key set to its shipped default is not reported as changed'
-    Use-UserConf (@('git.handling = off', 'review.security = on') -join $NL)
+    Use-UserConf (@('docs.sync = on', 'review.security = on') -join $NL)
     Assert-Equal '' (Get-ChangedKeys)
     Reset-Environment
     Set-Case 'config: missing defaults file never disables anything'
@@ -639,19 +630,28 @@ try {
         Assert-Equal $optionCase[1] (Get-SwitchState 'git.handling')
         Reset-Environment
     }
-    Set-Case 'config: git.handling on in the project conf applies when the plugin option is unset'
+    Set-Case 'config: git.handling on in the project conf is ignored'
     Use-ProjectConf 'git.handling = on'
-    Assert-Equal 'on' (Get-SwitchState 'git.handling')
-    Set-Case 'config: plugin option false wins over the project conf'
+    Assert-Equal 'off' (Get-SwitchState 'git.handling')
+    Set-Case 'config: git.handling in the project conf reports no changed keys'
+    Assert-Equal '' (Get-ChangedKeys)
+    Set-Case 'config: plugin option false leaves git.handling off'
     $env:CLAUDE_PLUGIN_OPTION_GIT_HANDLING = 'false'
     Assert-Equal 'off' (Get-SwitchState 'git.handling')
     Reset-Environment
-    Set-Case 'config: plugin option true wins over the user conf'
+    Set-Case 'config: plugin option true turns git.handling on despite the user conf'
     Use-UserConf 'git.handling = off'
     $env:CLAUDE_PLUGIN_OPTION_GIT_HANDLING = 'true'
     Assert-Equal 'on' (Get-SwitchState 'git.handling')
     Set-Case 'config: plugin option sets git.handling only'
     Assert-Equal 'git.handling=on' (Get-ChangedKeys)
+    Reset-Environment
+    Set-Case 'config: git.handling declared in the defaults file is ignored'
+    $directory = New-ScratchDirectory
+    [void](New-Item -ItemType Directory -Path (Join-Path $directory 'config'))
+    [System.IO.File]::WriteAllBytes((Join-Path $directory 'config/defaults.conf'), $Utf8.GetBytes('git.handling = on' + $NL + 'review.security = on' + $NL))
+    $env:CLAUDE_PLUGIN_ROOT = $directory
+    Assert-Equal 'off' (Get-SwitchState 'git.handling')
     Reset-Environment
 
     # ------------------------------------------------------------ session-context
@@ -670,7 +670,7 @@ try {
         Reset-Environment
     }
     Set-Case 'session-context: every switch on leaves no marker lines in the procedure'
-    Use-UserConf (Get-RewrittenDefaults 'off' 'on')
+    $env:CLAUDE_PLUGIN_OPTION_GIT_HANDLING = 'true'
     Assert-StdoutLacks '{{' 'session-context' @('context/procedure.md')
     Reset-Environment
 
@@ -719,6 +719,17 @@ try {
     $env:CLAUDE_PLUGIN_OPTION_REVIEWER_EFFORT = 'low'
     [void](Invoke-Hook 'render-agents' '')
     Assert-Equal ((@('reviewer.md - model: opus', 'reviewer.md - effort: high', 'reviewer.md + model: sonnet', 'reviewer.md + effort: low')) -join $NL) (Get-AgentsChanges $agentsRoot)
+    Reset-Environment
+
+    Set-Case 'render-agents: a failing agent is skipped and the others still render'
+    $agentsRoot = Use-AgentsRoot
+    [void][System.IO.Directory]::CreateDirectory((Join-Path $agentsRoot 'agents/builder.md.render'))
+    $env:CLAUDE_PLUGIN_OPTION_BUILDER_MODEL = 'sonnet'
+    $env:CLAUDE_PLUGIN_OPTION_REVIEWER_MODEL = 'sonnet'
+    $notice = (Invoke-Hook 'render-agents' '').Stdout
+    Assert-Equal ('reviewer.md - model: opus' + $NL + 'reviewer.md + model: sonnet') (Get-AgentsChanges $agentsRoot)
+    Set-Case 'render-agents: the notice lists only the agents rendered'
+    Assert-Equal 'GUILD AGENTS RENDERED: reviewer model=sonnet effort=high. Run /reload-plugins to apply.' $notice
     Reset-Environment
 
     Set-Case 'render-agents: invalid values leave every agent file untouched'

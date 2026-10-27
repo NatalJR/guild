@@ -108,5 +108,5 @@ QA surfaces from `## QA` go to the owner as a numbered checklist; the slice stay
 Task = "cleanup pass" / end of phase: do NOT classify as a regular edit; run DAG.md `## Cleanup pass`: one `guild:reviewer` per area group from `## Areas` (3 to 5 auditors, config surfaces in the last group) + one `guild:security` repo-state auditor + `/code-review`, same wave, find-only; then THEME consolidation on the main thread (vehicle per theme: codemod / architect / builder; discarded nits on the record); then slices through the normal procedure, extraction before consumption; then green tree via `## Verify` + aggregate verification reviewer + `guild:security` diff gate + one commit per theme + receipt flags to cards via `## Tracker` + state summary in the ledger file named under `## Process surfaces`.
 {{/if}}
 {{#if docs.sync}}
-Then DAG.md `## Docs sync`.
+Phase close: after the cleanup pass, run DAG.md `## Docs sync`.
 {{/if}}

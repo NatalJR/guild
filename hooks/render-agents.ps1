@@ -5,8 +5,9 @@
 # an allowlisted value that differs from the `model:` / `effort:` line of
 # ${CLAUDE_PLUGIN_ROOT}/agents/<agent>.md, replace that line in place; nothing else in the file
 # changes. Unset or invalid values are ignored. Prints one notice line only when a file changed
-# (the harness injects stdout as context). Writes only inside agents/. Any internal error prints
-# nothing and exits 0 (never blocks a session or a prompt).
+# (the harness injects stdout as context), listing the agents rendered. Writes only inside
+# agents/. An agent whose rewrite fails is skipped and the others still render; any other
+# internal error prints nothing. Always exits 0 (never blocks a session or a prompt).
 # Windows PowerShell 5.1 compatible syntax.
 Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
@@ -79,16 +80,41 @@ function Update-Agent([string]$Directory, [string]$Agent) {
     $lines = $FILE_UTF8.GetString([System.IO.File]::ReadAllBytes($path)).Split([char]10)
     $end = Get-FrontmatterEnd $lines
     if ($end -lt 0) { return '' }
+    $summary = Update-FrontmatterLines $lines $end $Agent
+    if ($summary -ne '') { Write-AgentFile $path $lines }
+    return $summary
+}
+
+# LINES END AGENT: sets the model and effort lines of LINES to their wanted values; the change
+# summary, empty when neither line changed.
+function Update-FrontmatterLines([string[]]$Lines, [int]$End, [string]$Agent) {
     $values = @{}
     $changed = $false
     foreach ($key in @('model', 'effort')) {
-        $current = Get-FrontmatterValue $lines $end $key
-        $values[$key] = Get-WantedValue $Agent $key $current
-        if ($values[$key] -cne $current) { Set-FrontmatterLine $lines $end $key $values[$key]; $changed = $true }
+        if (Update-FrontmatterKey $Lines $End $Agent $key $values) { $changed = $true }
     }
     if (-not $changed) { return '' }
-    Write-AgentFile $path $lines
     return $Agent + ' model=' + $values['model'] + ' effort=' + $values['effort']
+}
+
+# LINES END AGENT KEY VALUES: stores the wanted KEY value in VALUES and, when it differs from the
+# frontmatter, rewrites the KEY line; true when it did.
+function Update-FrontmatterKey([string[]]$Lines, [int]$End, [string]$Agent, [string]$Key, [hashtable]$Values) {
+    $current = Get-FrontmatterValue $Lines $End $Key
+    $Values[$Key] = Get-WantedValue $Agent $Key $current
+    if ($Values[$Key] -ceq $current) { return $false }
+    Set-FrontmatterLine $Lines $End $Key $Values[$Key]
+    return $true
+}
+
+# DIRECTORY AGENT: the change summary of Update-Agent; empty when the agent fails, so a failing
+# agent is skipped and the others still render.
+function Get-RenderedAgent([string]$Directory, [string]$Agent) {
+    try {
+        return Update-Agent $Directory $Agent
+    } catch {
+        return ''
+    }
 }
 
 try {
@@ -96,7 +122,7 @@ try {
     $root = [string]$env:CLAUDE_PLUGIN_ROOT
     if ($root -eq '') { exit 0 }
     $directory = Join-Path $root 'agents'
-    $rendered = @(@(foreach ($agent in $AGENTS) { Update-Agent $directory $agent }) | Where-Object { $_ -ne '' })
+    $rendered = @(@(foreach ($agent in $AGENTS) { Get-RenderedAgent $directory $agent }) | Where-Object { $_ -ne '' })
     if ($rendered.Count -gt 0) {
         Write-HookOutput ('GUILD AGENTS RENDERED: ' + ($rendered -join '; ') + '. Run /reload-plugins to apply.' + "`n")
     }

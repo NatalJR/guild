@@ -15,17 +15,6 @@ case "$0" in
   *) hooks_dir=. ;;
 esac
 
-# Diagnostic: set GUILD_HOOK_TRACE=<file> to log the payload shape;
-# used once to confirm which field carries the subagent's final message.
-trace_payload() {
-  [ -n "${GUILD_HOOK_TRACE:-}" ] || return 0
-  {
-    printf '%s SubagentStop\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
-    printf '%s' "$PAYLOAD" | dd ibs=1 count=200 2>/dev/null
-    printf '\n'
-  } 2>/dev/null >>"$GUILD_HOOK_TRACE"
-}
-
 is_guild_agent() {
   case "$1" in [Gg][Uu][Ii][Ll][Dd]:*) return 0 ;; esac
   return 1
@@ -55,7 +44,6 @@ main() {
   guild_config_load
   guild_switch hooks.receipt_check || return 0
   payload_read
-  trace_payload
   in_scope || return 0
   final_text=$(payload_field last_assistant_message) || return 0
   first_line=$(payload_first_line "$final_text")

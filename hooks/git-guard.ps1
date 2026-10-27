@@ -6,12 +6,13 @@
 # included.
 # Text-level guardrail only: it inspects the command string, so attribution supplied through
 # files (commit -F, --body-file), templates, or environment variables is not detected. The flag
-# checks see standalone tokens of a git commit / git push segment with quoted spans removed, so
-# a flag written inside quotes, a bundled short flag (-nm), a refspec force push (+branch) or
-# git options before the subcommand (git -C dir push) are not detected either.
+# checks see standalone tokens of a git commit / git push segment (ended by ;, &, | or a newline)
+# with quoted spans removed, so a flag written inside quotes, a bundled short flag (-nm), a
+# refspec force push (+branch) or git options before the subcommand (git -C dir push) are not
+# detected either.
 # Matching follows `LC_ALL=C grep -i -E`: the text is ASCII-lowercased and the patterns are
 # written in lowercase, [[:space:]] is the C-locale set.
-# Switch: git.handling (off by default; the plugin option wins over the conf files). A
+# Switch: git.handling, set by the plugin option only (off by default). A
 # malformed payload or an internal error never blocks.
 # Windows PowerShell 5.1 compatible syntax.
 Set-StrictMode -Version 2.0
@@ -35,23 +36,30 @@ function Test-Match([string]$Text, [string]$Pattern) {
     return [regex]::IsMatch((ConvertTo-AsciiLowerCase $Text), $Pattern)
 }
 
-# Newlines are folded to spaces first, so a command split across lines still counts; the
-# newline `printf '%s\n'` adds before `tr` becomes the trailing space.
+# Newlines are folded to spaces for the attribution check, which reads the whole command, so an
+# artifact command split across lines still counts; the newline `printf '%s\n'` adds before `tr`
+# becomes the trailing space.
 function Get-Folded([string]$Text) {
     return $Text.Replace([string][char]10, ' ') + ' '
 }
 
-# Drops double-quoted spans and single-quoted spans, so a flag named inside a commit message is
-# not taken for a flag. A double-quoted span holding a backslash is not one span: the sh twin's
-# sed expression matches the same language as "[^"\\]*" (its \. is a literal dot).
+# Newlines become `;` for the flag checks, so a newline ends a command segment like any other
+# separator and the next line's flags are never read as the previous command's; the newline
+# `printf '%s\n'` adds before `tr` becomes the trailing `;`.
+function Get-Segmented([string]$Text) {
+    return $Text.Replace([string][char]10, ';') + ';'
+}
+
+# Drops double-quoted spans (a backslash escapes the next character, \" included) and
+# single-quoted spans, so a flag named inside a commit message is not taken for a flag.
 function Get-Unquoted([string]$Text) {
-    return [regex]::Replace([regex]::Replace($Text, '"[^"\\]*"', ''), "'[^']*'", '')
+    return [regex]::Replace([regex]::Replace($Text, '"[^"\\]*(\\.[^"\\]*)*"', ''), "'[^']*'", '')
 }
 
 # The block message for the first rule COMMAND breaks; empty otherwise.
 function Get-Violation([string]$Command) {
     $folded = Get-Folded $Command
-    $tokens = Get-Unquoted $folded
+    $tokens = Get-Unquoted (Get-Segmented $Command)
     if ((Test-Match $folded $GIT_ARTIFACT_PATTERN) -and (Test-Match $folded $ATTRIBUTION_PATTERN)) {
         return $ATTRIBUTION_MESSAGE
     }

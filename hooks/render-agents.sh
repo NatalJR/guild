@@ -4,8 +4,10 @@
 # CLAUDE_PLUGIN_OPTION_<AGENT>_EFFORT, when set to an allowlisted value that differs from the
 # `model:` / `effort:` line of ${CLAUDE_PLUGIN_ROOT}/agents/<agent>.md, replace that line in
 # place; nothing else in the file changes. Unset or invalid values are ignored. Prints one notice
-# line only when a file changed (the harness injects stdout as context). Writes only inside
-# agents/. Any internal error prints nothing and exits 0 (never blocks a session or a prompt).
+# line only when a file changed (the harness injects stdout as context), listing the agents
+# rendered. Writes only inside agents/. An agent whose rewrite fails is skipped and the others
+# still render; any other internal error prints nothing. Always exits 0 (never blocks a session
+# or a prompt).
 set -u
 
 MODELS='haiku sonnet opus fable inherit'
@@ -52,18 +54,27 @@ wanted_value() {
 }
 
 # AGENT: rewrites agents/AGENT.md when an option differs; appends the change to RENDERED.
+# Returns 1 when a rewrite fails, leaving RENDERED as it was.
 render_agent() {
   agent_file="$agents_dir/$1.md"
   [ -f "$agent_file" ] || return 0
   [ "$(head -n 1 "$agent_file" | tr -d '\r')" = '---' ] || return 0
-  current_model=$(frontmatter_value "$agent_file" model)
-  current_effort=$(frontmatter_value "$agent_file" effort)
-  wanted_model=$(wanted_value "$1_model" "$current_model" "$MODELS")
-  wanted_effort=$(wanted_value "$1_effort" "$current_effort" "$EFFORTS")
-  [ "$wanted_model" = "$current_model" ] && [ "$wanted_effort" = "$current_effort" ] && return 0
-  [ "$wanted_model" = "$current_model" ] || rewrite_frontmatter "$agent_file" model "$wanted_model" || return 1
-  [ "$wanted_effort" = "$current_effort" ] || rewrite_frontmatter "$agent_file" effort "$wanted_effort" || return 1
-  RENDERED="$RENDERED${RENDERED:+; }$1 model=$wanted_model effort=$wanted_effort"
+  agent_changed=''
+  render_key "$1" model "$MODELS" || return 1
+  rendered_model=$rendered_value
+  render_key "$1" effort "$EFFORTS" || return 1
+  [ -n "$agent_changed" ] || return 0
+  RENDERED="$RENDERED${RENDERED:+; }$1 model=$rendered_model effort=$rendered_value"
+}
+
+# AGENT KEY ALLOWED: sets rendered_value to the wanted KEY value and, when it differs from the
+# file, rewrites the KEY line and sets agent_changed; returns 1 when the rewrite fails.
+render_key() {
+  current_value=$(frontmatter_value "$agent_file" "$2")
+  rendered_value=$(wanted_value "$1_$2" "$current_value" "$3")
+  [ "$rendered_value" != "$current_value" ] || return 0
+  rewrite_frontmatter "$agent_file" "$2" "$rendered_value" || return 1
+  agent_changed=yes
 }
 
 # FILE KEY VALUE: replaces the frontmatter `KEY:` line through a sibling temp file. KEY is
@@ -81,7 +92,8 @@ main() {
   agents_dir="$plugin_root/agents"
   RENDERED=''
   for agent in investigator builder architect reviewer security scribe; do
-    render_agent "$agent" || return 0
+    # A failing agent is skipped; the others still render.
+    render_agent "$agent" || continue
   done
   [ -n "$RENDERED" ] || return 0
   printf 'GUILD AGENTS RENDERED: %s. Run /reload-plugins to apply.\n' "$RENDERED"

@@ -13,14 +13,20 @@
 // args: {
 //   groups: [{ name: string, paths: string[] }],  // area groups from the charter `## Areas`, 3 to 5 (outside that range is logged);
 //                                                 // the name "security" is reserved for the security auditor
-//   securityScope: string,                        // surfaces the repo-state security auditor covers
-//   effort?: string                               // reviewer auditor effort: low, medium, high, xhigh, max; default high;
-//                                                 // every guild:security call runs at high regardless
+//   securityScope: string                         // surfaces the repo-state security auditor covers
 // }
 //
 // Result: { groups: [{ group, confirmed, refutedCount, unverified }], totals } or { error }.
 // `unverified` holds findings whose refuter died (kept, never silently dropped);
 // `totals.groupsDropped` names every group whose auditor died.
+//
+// Every agent here is a guild:* agent and runs at the effort of its own frontmatter (the
+// per-agent plugin options); the workflow passes no effort.
+//
+// The review switches (review.norms, review.correctness, review.security) are not read here:
+// the workflow always runs every auditor (each area group plus the security auditor). With a
+// switch off, the main thread passes only the dimensions you want by dispatching them itself
+// instead of this workflow.
 
 export const meta = {
   name: 'cleanup-audit',
@@ -34,8 +40,8 @@ export const meta = {
 // twin: workflows/review-wave.js (keep both copies identical)
 const SECURITY_DIMENSION = 'security'
 const SECURITY_AGENT = 'guild:security'
-// guild:security is never downgraded (README.md agents table): every security call runs at high effort, whatever args.effort asks.
-const SECURITY_EFFORT = 'high'
+// guild:* agents run at the effort of their own frontmatter (the per-agent plugin options), so no agent() call
+// with a guild:* agentType passes effort; guild:security is never downgraded (README.md agents table).
 const TEXT = { type: 'string' }
 const SEVERITY = { type: 'string', enum: ['red', 'yellow', 'blue', 'question'] }
 
@@ -87,12 +93,8 @@ function findingsSchema(dimension) {
 }
 
 function refuteLens(isSecurity) {
-  if (isSecurity) return { agentType: SECURITY_AGENT, effort: SECURITY_EFFORT, rules: SECURITY_REFUTE_RULES }
-  return { agentType: 'guild:reviewer', effort: 'medium', rules: REFUTE_RULES }
-}
-
-function effortFor(agentType, requested) {
-  return agentType === SECURITY_AGENT ? SECURITY_EFFORT : requested
+  if (isSecurity) return { agentType: SECURITY_AGENT, rules: SECURITY_REFUTE_RULES }
+  return { agentType: 'guild:reviewer', rules: REFUTE_RULES }
 }
 
 function parseArgs(raw) {
@@ -126,7 +128,6 @@ function sum(results, count) {
 }
 
 const SECURITY_GROUP = 'security'
-const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max']
 const DEFAULT_SECURITY_SCOPE = 'every surface listed under the charter `## Security` section'
 const MIN_GROUPS = 3
 const MAX_GROUPS = 5
@@ -144,7 +145,7 @@ function isMalformedGroup(group) {
 
 function validationError(input) {
   if (!Array.isArray(input.groups) || input.groups.length === 0) {
-    log('cleanup-audit: args.groups missing or empty; expected { groups: [{ name, paths }], securityScope, effort? }')
+    log('cleanup-audit: args.groups missing or empty; expected { groups: [{ name, paths }], securityScope }')
     return 'args.groups required'
   }
   const malformed = input.groups.filter(isMalformedGroup)
@@ -156,13 +157,6 @@ function validationError(input) {
 function logGroupCount(groups) {
   if (groups.length >= MIN_GROUPS && groups.length <= MAX_GROUPS) return
   log(`cleanup-audit: ${groups.length} area groups given; the cleanup pass expects ${MIN_GROUPS} to ${MAX_GROUPS}`)
-}
-
-function effortOf(requested) {
-  if (!requested) return 'high'
-  if (EFFORTS.includes(requested)) return requested
-  log(`cleanup-audit: effort "${requested}" is not one of ${EFFORTS.join(', ')}; using high`)
-  return 'high'
 }
 
 function findingsPrompt(group) {
@@ -193,14 +187,13 @@ function refutePrompt(finding, rules) {
   ].join('\n')
 }
 
-function find(group, effort, securityScope) {
+function find(group, securityScope) {
   const isSecurity = group.name === SECURITY_GROUP
   const agentType = isSecurity ? SECURITY_AGENT : 'guild:reviewer'
   return agent(isSecurity ? securityPrompt(securityScope) : findingsPrompt(group), {
     label: `audit:${group.name}`,
     phase: 'Audit',
     agentType,
-    effort: effortFor(agentType, effort),
     schema: findingsSchema(isSecurity ? SECURITY_DIMENSION : null)
   })
 }
@@ -215,7 +208,6 @@ function refute(finding, group) {
     label: `refute:${group.name}:${locate(finding)}`,
     phase: 'Verify',
     agentType: lens.agentType,
-    effort: lens.effort,
     schema: VERDICT
   })
 }
@@ -259,10 +251,9 @@ if (error) return { error }
 logGroupCount(input.groups)
 if (!input.securityScope) log(`cleanup-audit: args.securityScope missing; security auditor covers ${DEFAULT_SECURITY_SCOPE}`)
 
-const effort = effortOf(input.effort)
 const securityScope = input.securityScope || DEFAULT_SECURITY_SCOPE
 const items = [{ name: SECURITY_GROUP, paths: [] }].concat(input.groups)
-const results = await pipeline(items, group => find(group, effort, securityScope), verifyGroup)
+const results = await pipeline(items, group => find(group, securityScope), verifyGroup)
 const totals = totalsOf(results, items)
 logTotals(totals)
 return { groups: results.filter(Boolean), totals }

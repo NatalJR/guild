@@ -13,32 +13,8 @@ $ErrorActionPreference = 'Stop'
 $RECEIPT_TOKEN_PATTERN = '^(plan:|verify:|verified:|docs-sync\.|no issues\.|no match\.|[0-9]+ findings\.|too-big\.|too-small\.|needs-confirm\.|ambiguous\.|regressed\.|need-map\.|blocked\.|not-security\.|security-scope\.|defs:|refs:|callers:|tests:|sites:|imports:)'
 $LOCATION_PATTERN = '^[^ \t\n\v\f\r]+:[0-9]+'
 $EXCERPT_BYTES = 80
-$TRACE_BYTES = 200
 $REJECT_PREFIX = 'Receipt contract: your final message must START with a terminal token or a receipt line (plan:, verify:, verified:, docs-sync., No issues., No match., N findings., too-big., too-small., needs-confirm., ambiguous., need-map., blocked., regressed., not-security., security-scope., or a path:line row). Got: "'
 $REJECT_SUFFIX = '". Rewrite your final message with the token on line 1 and stop again.' + "`n"
-
-# Diagnostic: set GUILD_HOOK_TRACE=<file> to log the payload shape;
-# used once to confirm which field carries the subagent's final message.
-function Write-PayloadTrace([string]$Payload) {
-    $tracePath = [string]$env:GUILD_HOOK_TRACE
-    if ($tracePath -eq '') { return }
-    try {
-        $file = New-Object System.IO.FileStream -ArgumentList $tracePath, ([System.IO.FileMode]::Append), ([System.IO.FileAccess]::Write)
-        try { Write-HookStream $file (Get-TraceRecord $Payload) } finally { $file.Dispose() }
-    } catch {
-        return
-    }
-}
-
-# The trace record: UTC timestamp and event name, then the first payload bytes.
-function Get-TraceRecord([string]$Payload) {
-    $stamp = [System.DateTime]::UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [System.Globalization.CultureInfo]::InvariantCulture)
-    $record = New-Object System.IO.MemoryStream
-    Add-Bytes $record ($PAYLOAD_UTF8.GetBytes($stamp + " SubagentStop`n"))
-    Add-Bytes $record (Get-LeadingBytes $Payload $TRACE_BYTES)
-    Add-Bytes $record ([byte[]]@(10))
-    return , $record.ToArray()
-}
 
 function Add-Bytes([System.IO.MemoryStream]$Buffer, [byte[]]$Bytes) {
     $Buffer.Write($Bytes, 0, $Bytes.Length)
@@ -83,14 +59,18 @@ function Invoke-ReceiptCheck {
     Import-GuildConfig
     if (-not (Get-GuildSwitch 'hooks.receipt_check')) { return 0 }
     $payload = Read-Payload
-    Write-PayloadTrace $payload
     if (-not (Test-InScope $payload)) { return 0 }
-    $finalText = Get-PayloadField $payload 'last_assistant_message'
-    if ($null -eq $finalText) { return 0 }
-    $firstLine = Get-FirstNonEmptyLine $finalText
+    $firstLine = Get-FinalFirstLine $payload
     if ($firstLine -eq '' -or (Test-ReceiptLine $firstLine)) { return 0 }
     Write-Rejection $firstLine
     return 2
+}
+
+# The first non-empty line of the subagent's final message; empty when the field is absent.
+function Get-FinalFirstLine([string]$Payload) {
+    $finalText = Get-PayloadField $Payload 'last_assistant_message'
+    if ($null -eq $finalText) { return '' }
+    return Get-FirstNonEmptyLine $finalText
 }
 
 try {

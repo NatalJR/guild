@@ -5,10 +5,11 @@
 # allowed). The whole command string is evaluated, compound commands included.
 # Text-level guardrail only: it inspects the command string, so attribution supplied through
 # files (commit -F, --body-file), templates, or environment variables is not detected. The flag
-# checks see standalone tokens of a git commit / git push segment with quoted spans removed, so
-# a flag written inside quotes, a bundled short flag (-nm), a refspec force push (+branch) or
-# git options before the subcommand (git -C dir push) are not detected either.
-# Switch: git.handling (off by default; the plugin option wins over the conf files). A
+# checks see standalone tokens of a git commit / git push segment (ended by ;, &, | or a newline)
+# with quoted spans removed, so a flag written inside quotes, a bundled short flag (-nm), a
+# refspec force push (+branch) or git options before the subcommand (git -C dir push) are not
+# detected either.
+# Switch: git.handling, set by the plugin option only (off by default). A
 # malformed payload or an internal error never blocks.
 set -u
 
@@ -36,21 +37,28 @@ matches() {
   printf '%s\n' "$1" | LC_ALL=C grep -q -i -E -e "$2"
 }
 
-# Newlines are folded to spaces first, so a command split across lines still counts.
+# Newlines are folded to spaces for the attribution check, which reads the whole command, so an
+# artifact command split across lines still counts.
 folded() {
   printf '%s\n' "$1" | tr '\n' ' '
 }
 
-# Drops double-quoted spans (backslash escapes honoured) and single-quoted spans, so a flag
-# named inside a commit message is not taken for a flag.
+# Newlines become `;` for the flag checks, so a newline ends a command segment like any other
+# separator and the next line's flags are never read as the previous command's.
+segmented() {
+  printf '%s\n' "$1" | tr '\n' ';'
+}
+
+# Drops double-quoted spans (a backslash escapes the next character, \" included) and
+# single-quoted spans, so a flag named inside a commit message is not taken for a flag.
 unquoted() {
-  printf '%s\n' "$1" | sed -e 's/"[^"\]*\(\.[^"\]*\)*"//g' -e "s/'[^']*'//g"
+  printf '%s\n' "$1" | sed -e 's/"[^"\]*\(\\.[^"\]*\)*"//g' -e "s/'[^']*'//g"
 }
 
 # Prints the block message for the first rule COMMAND breaks; prints nothing otherwise.
 violation_of() {
   command_folded=$(folded "$1")
-  command_tokens=$(unquoted "$command_folded")
+  command_tokens=$(unquoted "$(segmented "$1")")
   if matches "$command_folded" "$GIT_ARTIFACT_PATTERN" && matches "$command_folded" "$ATTRIBUTION_PATTERN"; then
     printf '%s\n' "$ATTRIBUTION_MESSAGE"
   elif matches "$command_tokens" "$NO_VERIFY_PATTERN"; then

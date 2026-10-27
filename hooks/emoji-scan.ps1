@@ -2,6 +2,9 @@
 # the harness runs this one only where no Git Bash is found): rejects emoji in the file just
 # written (owner rule).
 # Skips empty paths, missing files, files outside CLAUDE_PROJECT_DIR, and binary types.
+# Project containment is lexical: the path is resolved for `.` and `..` without following
+# symlinks, so a symlink inside the project that points outside it is still scanned (read-only;
+# only the line number of the first hit is reported).
 # Detection is by code point over the file decoded as UTF-8: U+1F000-U+1FAFF, U+2600-U+27BF,
 # U+2B00-U+2BFF, U+FE0F, U+200D. Unlike the byte-level sh twin, a malformed UTF-8 sequence
 # decodes to U+FFFD and never counts as a hit.
@@ -10,6 +13,8 @@
 Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
 
+# Generic binary types, tied to no project: images, fonts, archives, executables, model and
+# database files, and PDF documents.
 $BINARY_EXTENSIONS = ' .png .jpg .jpeg .gif .ico .onnx .sqlite .dll .exe .pdf .zip .woff .woff2 .ttf '
 # Characters that can start an emoji: the BMP ranges, plus any high surrogate (decided by the
 # code point it forms with the next character).

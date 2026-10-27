@@ -28,9 +28,9 @@
 #   %FIXTURES% the tests/fixtures directory, %PROJECT% the CLAUDE_PROJECT_DIR of the case,
 #   %ROOT% the repository as the hooks render it (forward slashes), agents-copy cases included.
 # - Environment before each case: CLAUDE_PLUGIN_ROOT the repository, CLAUDE_PROJECT_DIR
-#   fixtures/project, HOME fixtures/home (no guild.conf), GUILD_HOOK_TRACE,
-#   CLAUDE_PLUGIN_OPTION_GIT_HANDLING and every CLAUDE_PLUGIN_OPTION_<AGENT>_MODEL / _EFFORT
-#   unset. Setup order: user-conf, project-conf, agents-copy, env, unset.
+#   fixtures/project, HOME fixtures/home (no guild.conf), CLAUDE_PLUGIN_OPTION_GIT_HANDLING and
+#   every CLAUDE_PLUGIN_OPTION_<AGENT>_MODEL / _EFFORT unset. Setup order: user-conf,
+#   project-conf, agents-copy, env, unset.
 # - A record is one case; it passes when every expectation holds.
 
 case=emoji-scan: clean file allowed

@@ -1,6 +1,9 @@
 #!/bin/sh
 # PostToolUse hook (Edit|Write): rejects emoji in the file just written (owner rule).
 # Skips empty paths, missing files, files outside CLAUDE_PROJECT_DIR, and binary types.
+# Project containment is lexical: the path is resolved for `.` and `..` without following
+# symlinks, so a symlink inside the project that points outside it is still scanned (read-only;
+# only the line number of the first hit is reported).
 # Detection is byte-level (LC_ALL=C grep -E over UTF-8 byte sequences), so no Unicode-aware tool
 # is needed: U+1F000-U+1FAFF, U+2600-U+27BF, U+2B00-U+2BFF, U+FE0F, U+200D. The ranges only
 # check the leading bytes of each sequence, so a malformed UTF-8 sequence that starts with
@@ -8,6 +11,8 @@
 # Switch: hooks.emoji_scan. A malformed payload or an internal error never blocks.
 set -u
 
+# Generic binary types, tied to no project: images, fonts, archives, executables, model and
+# database files, and PDF documents.
 BINARY_EXTENSIONS=' .png .jpg .jpeg .gif .ico .onnx .sqlite .dll .exe .pdf .zip .woff .woff2 .ttf '
 EMOJI_PATTERN=$(printf '\360\237[\200-\253]|\342[\230-\236]|\342[\254-\257]|\357\270\217|\342\200\215')
 # Internal status meaning "block"; any other status, including a shell error, allows.
@@ -74,14 +79,19 @@ first_emoji_line() {
   LC_ALL=C tr -d '\000' <"$1" 2>/dev/null | LC_ALL=C grep -n -E -e "$EMOJI_PATTERN" | head -n 1 | cut -d : -f 1
 }
 
+# Sets file_path from the payload; returns 1 when the payload names no scannable file.
+scannable_payload_file() {
+  payload_read
+  file_path=$(payload_field file_path) || return 1
+  is_scannable "$file_path" "$(to_forward_slashes "$file_path")"
+}
+
 main() {
   . "$hooks_dir/lib/payload.sh"
   . "$hooks_dir/lib/config.sh"
   guild_config_load
   guild_switch hooks.emoji_scan || return 0
-  payload_read
-  file_path=$(payload_field file_path) || return 0
-  is_scannable "$file_path" "$(to_forward_slashes "$file_path")" || return 0
+  scannable_payload_file || return 0
   hit_line=$(first_emoji_line "$file_path")
   [ -n "$hit_line" ] || return 0
   printf 'Emoji found in %s at line %s (first hit). Owner rule: no emoji in any committed file; write severity/status markers as words. Remove it.\n' "$file_path" "$hit_line" >&2
