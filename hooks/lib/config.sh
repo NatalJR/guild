@@ -4,7 +4,8 @@
 # Grammar per line: blank or `#` comment ignored; otherwise `key = value`, optional spaces
 # around `=`, keys matching ^[a-z][a-z0-9_.]*$, values on|off|true|false|yes|no in any case.
 # Any other line (inline comments included) is ignored silently. The defaults file declares the
-# known keys; a key the defaults file does not declare is ignored in the user and project files.
+# known keys; a key the defaults file does not declare is ignored in the user and project files
+# and reads as on, except git.handling, which reads as off (also when the defaults file is missing).
 # Lines are only matched against that grammar, never expanded or executed.
 # The plugin option CLAUDE_PLUGIN_OPTION_GIT_HANDLING (install prompt or /config) is applied
 # after the three files and wins for git.handling: true|1|on|yes in any case is on, any other
@@ -14,6 +15,7 @@
 set -u
 
 GUILD_SWITCHES=''
+GUILD_DEFAULTS=''
 _GUILD_NL='
 '
 _GUILD_CR=$(printf '\r')
@@ -23,28 +25,57 @@ case "$0" in
 esac
 
 # Builds GUILD_SWITCHES: newline-separated key=on / key=off entries, one per key.
+# GUILD_DEFAULTS keeps the same table as declared by the defaults file alone.
 guild_config_load() {
   GUILD_SWITCHES=''
   _guild_config_read "${CLAUDE_PLUGIN_ROOT:-$_GUILD_SCRIPT_DIR/..}/config/defaults.conf" declare
+  GUILD_DEFAULTS=$GUILD_SWITCHES
   [ -z "${HOME:-}" ] || _guild_config_read "$HOME/.claude/guild.conf" override
   [ -z "${CLAUDE_PROJECT_DIR:-}" ] || _guild_config_read "$CLAUDE_PROJECT_DIR/.claude/guild.conf" override
   _guild_option_apply
   return 0
 }
 
-# Returns 0 when KEY is on or unknown (unknown keys default to on), 1 when off.
+# Returns 0 when KEY is on, 1 when off. A key with no entry takes its built-in default.
 guild_switch() {
-  case "$_GUILD_NL$GUILD_SWITCHES$_GUILD_NL" in
-    *"$_GUILD_NL$1=off$_GUILD_NL"*) return 1 ;;
-  esac
+  _guild_table_value "$GUILD_SWITCHES" "$1" || _guild_builtin_default "$1"
+  [ "$_guild_value" = on ]
+}
+
+# Prints the key=on / key=off entries whose value differs from the shipped default, sorted by
+# key, space separated; nothing when every key holds its default.
+guild_changed_keys() {
+  _guild_changed=$(_guild_changed_entries | LC_ALL=C sort -t '=' -k 1,1 | tr '\n' ' ')
+  [ -z "$_guild_changed" ] || printf '%s\n' "${_guild_changed% }"
   return 0
 }
 
-# Prints the keys that are off, sorted, space separated; nothing when every key is on.
-guild_disabled_keys() {
-  _guild_off=$(printf '%s\n' "$GUILD_SWITCHES" | sed -n 's/=off$//p' | LC_ALL=C sort | tr '\n' ' ')
-  [ -z "$_guild_off" ] || printf '%s\n' "${_guild_off% }"
-  return 0
+_guild_changed_entries() {
+  printf '%s\n' "$GUILD_SWITCHES" | while IFS= read -r _guild_entry; do
+    [ -n "$_guild_entry" ] || continue
+    _guild_default_value "${_guild_entry%%=*}"
+    [ "${_guild_entry#*=}" = "$_guild_value" ] || printf '%s\n' "$_guild_entry"
+  done
+}
+
+# Sets _guild_value to KEY's shipped default: the defaults file entry, else the built-in one.
+_guild_default_value() {
+  _guild_table_value "$GUILD_DEFAULTS" "$1" || _guild_builtin_default "$1"
+}
+
+# TABLE KEY: sets _guild_value to KEY's state in TABLE; returns 1 when TABLE has no entry.
+_guild_table_value() {
+  case "$_GUILD_NL$1$_GUILD_NL" in
+    *"$_GUILD_NL$2=on$_GUILD_NL"*) _guild_value=on ;;
+    *"$_GUILD_NL$2=off$_GUILD_NL"*) _guild_value=off ;;
+    *) return 1 ;;
+  esac
+}
+
+# Built-in defaults for a key no defaults file declares: git.handling is opt-in, the rest on.
+_guild_builtin_default() {
+  _guild_value=on
+  [ "$1" != git.handling ] || _guild_value=off
 }
 
 # FILE MODE: applies every valid line; MODE declare accepts new keys, override only known ones.

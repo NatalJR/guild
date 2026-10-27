@@ -100,7 +100,7 @@ Every switch is on by default except `git.handling`, which is opt-in (see Git ha
 
 Grammar: one `key = value` per line, spaces around `=` optional. Values are `on`, `off`, `true`, `false`, `yes` or `no`, in any case; keys are lowercase, exactly as listed below. Blank lines and lines starting with `#` are comments. A malformed line (a trailing `# comment` after the value included), a key the defaults file does not declare, and a missing file are all ignored silently. Values are only matched against that grammar, never expanded or executed.
 
-When any switch is off, the always-on context ends with a `## Guild switches off` section listing the off keys (by default that is `git.handling`), so the session knows what is disabled. The `procedure.*`, `review.*` and `docs.sync` switches remove the matching text from the injected procedure, and `git.handling` picks the Step 6 commit sentence; `skills/guild/DAG.md` itself is not templated.
+When any switch differs from its shipped default, the always-on context ends with a `## Guild switches changed` section listing each such switch as `key=value`, comma separated (for example `git.handling=on, review.security=off`), so the session knows what departs from the defaults; with the shipped defaults the section is absent. If `config/defaults.conf` is missing, every key reads as on except `git.handling`, which stays off unless the plugin option turns it on. The `procedure.*`, `review.*` and `docs.sync` switches remove the matching text from the injected procedure, and `git.handling` picks the Step 6 commit sentence; `skills/guild/DAG.md` itself is not templated.
 
 | Key | Default | Effect of off |
 |---|---|---|
@@ -158,7 +158,7 @@ Every entry runs `sh "${CLAUDE_PLUGIN_ROOT}/hooks/<script>.sh"`.
 
 | Event | Script | What it does | Exit behaviour | Switch |
 |---|---|---|---|---|
-| SessionStart | `session-context.sh context/always-on.md` | Injects the style and universal rules (sections dropped per switch), plus a `## Guild switches off` list when any switch is off | Exit 0; never blocks | `style.terse`, `rules.universal` |
+| SessionStart | `session-context.sh context/always-on.md` | Injects the style and universal rules (sections dropped per switch), plus a `## Guild switches changed` list when any switch differs from its shipped default | Exit 0; never blocks | `style.terse`, `rules.universal` |
 | SessionStart | `session-context.sh context/procedure.md` | Injects the default operating procedure with the plugin root substituted; prints nothing when the default mode is off | Exit 0; never blocks | `procedure.default_mode` and the procedure switches |
 | UserPromptSubmit | `prompt-reinforce.sh` | Per-prompt reinforcement line: six-line reply budget, universal code rules, procedure walk | Exit 0; never blocks | `hooks.prompt_reinforce` |
 | PreToolUse (`Bash`, `PowerShell`) | `git-guard.sh` | Denies AI attribution in `git commit` and `gh pr create` / `gh pr edit`, a hook bypass (`--no-verify`; `-n` on `git commit`) and a forced push (`--force`, `-f`; `--force-with-lease` allowed) | Exit 2 with the reason on stderr on a match; exit 0 otherwise and whenever the switch is off | `git.handling` |

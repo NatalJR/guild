@@ -504,8 +504,10 @@ describe 'config: fixture project carries no guild.conf'
 expect_equal 'absent' "$([ -e "$FIXTURE_PROJECT/.claude/guild.conf" ] && printf present || printf absent)"
 describe 'config: defaults declare fifteen keys, fourteen on'
 expect_equal '14' "$(config_query count_on_switches)"
-describe 'config: defaults turn only git.handling off'
-expect_equal 'git.handling' "$(config_query guild_disabled_keys)"
+describe 'config: shipped defaults report no changed keys'
+expect_equal '' "$(config_query guild_changed_keys)"
+describe 'config: git.handling reads as off by default'
+expect_equal 'off' "$(switch_state git.handling)"
 describe 'config: user conf turns a switch off'
 use_user_conf 'hooks.emoji_scan = off'
 expect_equal 'off' "$(switch_state hooks.emoji_scan)"
@@ -515,7 +517,7 @@ expect_equal 'on' "$(switch_state hooks.emoji_scan)"
 reset_env
 describe 'config: unknown key ignored'
 use_user_conf 'hooks.not_a_switch = off'
-expect_equal 'git.handling' "$(config_query guild_disabled_keys)"
+expect_equal '' "$(config_query guild_changed_keys)"
 describe 'config: unknown key reads as on'
 expect_equal 'on' "$(switch_state hooks.not_a_switch)"
 reset_env
@@ -527,36 +529,52 @@ review.security = off # trailing comment
 =off
   # docs.sync = off
 review.norms=No"
-expect_equal 'git.handling review.norms' "$(config_query guild_disabled_keys)"
+expect_equal 'review.norms=off' "$(config_query guild_changed_keys)"
 reset_env
 describe 'config: values are case-insensitive'
 use_user_conf "review.security = OFF
 docs.sync = False
 style.terse = YES"
-expect_equal 'docs.sync git.handling review.security' "$(config_query guild_disabled_keys)"
+expect_equal 'docs.sync=off review.security=off' "$(config_query guild_changed_keys)"
 reset_env
 describe 'config: CRLF line endings'
 new_scratch_dir
 printf 'review.security = off\r\nhooks.emoji_scan = off\r\n' >"$SCRATCH_DIR/.claude/guild.conf"
 HOME=$SCRATCH_DIR
-expect_equal 'git.handling hooks.emoji_scan review.security' "$(config_query guild_disabled_keys)"
+expect_equal 'hooks.emoji_scan=off review.security=off' "$(config_query guild_changed_keys)"
 reset_env
-describe 'config: guild_disabled_keys sorted and space separated'
+describe 'config: guild_changed_keys sorted and space separated'
 use_user_conf "style.terse = off
+git.handling = on
 docs.sync = off
 hooks.receipt_check = off"
-expect_equal 'docs.sync git.handling hooks.receipt_check style.terse' "$(config_query guild_disabled_keys)"
+expect_equal 'docs.sync=off git.handling=on hooks.receipt_check=off style.terse=off' "$(config_query guild_changed_keys)"
+reset_env
+describe 'config: a key set to its shipped default is not reported as changed'
+use_user_conf "git.handling = off
+review.security = on"
+expect_equal '' "$(config_query guild_changed_keys)"
 reset_env
 describe 'config: missing defaults file never disables anything'
 new_scratch_dir
 CLAUDE_PLUGIN_ROOT=$SCRATCH_DIR
 use_user_conf 'review.security = off'
 expect_equal 'on' "$(switch_state review.security)"
+describe 'config: missing defaults file keeps git.handling off'
+expect_equal 'off' "$(switch_state git.handling)"
+describe 'config: missing defaults file reports no changed keys'
+expect_equal '' "$(config_query guild_changed_keys)"
+describe 'config: missing defaults file, plugin option true turns git.handling on'
+CLAUDE_PLUGIN_OPTION_GIT_HANDLING=true
+export CLAUDE_PLUGIN_OPTION_GIT_HANDLING
+expect_equal 'on' "$(switch_state git.handling)"
+describe 'config: missing defaults file, plugin option true reports git.handling=on'
+expect_equal 'git.handling=on' "$(config_query guild_changed_keys)"
 reset_env
 describe 'config: unset CLAUDE_PLUGIN_ROOT derives the root from the sourcing script'
 use_user_conf 'review.security = off'
 unset CLAUDE_PLUGIN_ROOT
-expect_equal 'git.handling review.security' "$(config_query guild_disabled_keys)"
+expect_equal 'review.security=off' "$(config_query guild_changed_keys)"
 reset_env
 
 # VALUE WANT: git.handling state with the plugin option set to VALUE and no conf file.
@@ -590,7 +608,7 @@ CLAUDE_PLUGIN_OPTION_GIT_HANDLING=true
 export CLAUDE_PLUGIN_OPTION_GIT_HANDLING
 expect_equal 'on' "$(switch_state git.handling)"
 describe 'config: plugin option sets git.handling only'
-expect_equal '' "$(config_query guild_disabled_keys)"
+expect_equal 'git.handling=on' "$(config_query guild_changed_keys)"
 reset_env
 
 # ---------------------------------------------------------------- session-context
@@ -599,11 +617,19 @@ describe 'session-context: always-on has Reply style by default'
 expect_stdout_contains '## Reply style' session-context.sh context/always-on.md
 describe 'session-context: always-on carries the length budget'
 expect_stdout_contains '- Length budget: a status update is at most six lines.' session-context.sh context/always-on.md
-describe 'session-context: switches-off section lists git.handling by default'
-expect_stdout_contains "## Guild switches off${NL}${NL}git.handling" session-context.sh context/always-on.md
-describe 'session-context: no switches-off section when git.handling is on'
+describe 'session-context: shipped defaults print no switches-changed section'
+expect_stdout_lacks '## Guild switches changed' session-context.sh context/always-on.md
+describe 'session-context: git.handling on prints git.handling=on'
 use_user_conf 'git.handling = on'
-expect_stdout_lacks '## Guild switches off' session-context.sh context/always-on.md
+expect_stdout_contains "## Guild switches changed${NL}${NL}git.handling=on" session-context.sh context/always-on.md
+reset_env
+describe 'session-context: review.security off prints review.security=off'
+use_project_conf 'review.security = off'
+expect_stdout_contains "## Guild switches changed${NL}${NL}review.security=off" session-context.sh context/always-on.md
+reset_env
+describe 'session-context: switch set to its default prints no switches-changed section'
+use_user_conf 'git.handling = off'
+expect_stdout_lacks '## Guild switches changed' session-context.sh context/always-on.md
 reset_env
 describe 'session-context: always-on default has no marker lines'
 expect_stdout_lacks '{{' session-context.sh context/always-on.md
@@ -612,21 +638,21 @@ use_user_conf 'style.terse = off'
 expect_stdout_lacks '## Reply style' session-context.sh context/always-on.md
 describe 'session-context: style.terse off keeps Delegation'
 expect_stdout_contains '## Delegation' session-context.sh context/always-on.md
-describe 'session-context: switches-off section lists the off key'
-expect_stdout_contains "## Guild switches off${NL}${NL}git.handling, style.terse" session-context.sh context/always-on.md
+describe 'session-context: switches-changed section lists the off key'
+expect_stdout_contains "## Guild switches changed${NL}${NL}style.terse=off" session-context.sh context/always-on.md
 reset_env
 describe 'session-context: rules.universal off drops Universal code rules'
 use_user_conf 'rules.universal = off'
 expect_stdout_lacks '## Universal code rules' session-context.sh context/always-on.md
 reset_env
-describe 'session-context: switches-off keys are comma separated'
+describe 'session-context: switches-changed entries are comma separated'
 use_user_conf "style.terse = off
 review.security = off"
-expect_stdout_contains 'review.security, style.terse' session-context.sh context/always-on.md
+expect_stdout_contains 'review.security=off, style.terse=off' session-context.sh context/always-on.md
 reset_env
-describe 'session-context: switches-off section only on the always-on part'
+describe 'session-context: switches-changed section only on the always-on part'
 use_user_conf 'review.security = off'
-expect_stdout_lacks '## Guild switches off' session-context.sh context/procedure.md
+expect_stdout_lacks '## Guild switches changed' session-context.sh context/procedure.md
 reset_env
 
 describe 'session-context: procedure has no marker lines'

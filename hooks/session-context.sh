@@ -8,8 +8,9 @@
 # it (no nesting); marker lines are always dropped and the block body is kept only while switch
 # KEY is on (`!KEY`: only while it is off).
 # `{{PLUGIN_ROOT}}` becomes the plugin path with forward slashes so the main thread can Read
-# DAG.md and the charter template. The always-on part gains a `## Guild switches off` section
-# when any switch is off; the procedure part prints nothing when procedure.default_mode is off.
+# DAG.md and the charter template. The always-on part gains a `## Guild switches changed`
+# section listing key=value for every switch that differs from its shipped default; the procedure
+# part prints nothing when procedure.default_mode is off.
 # Missing file or any internal error prints nothing and exits 0 (never blocks a session).
 set -u
 
@@ -78,11 +79,11 @@ render_file() {
   done <"$1"
 }
 
-print_switches_off() {
-  disabled=$(guild_disabled_keys)
-  [ -n "$disabled" ] || return 0
-  replace_all "$disabled" ' ' ', '
-  printf '\n## Guild switches off\n\n%s\n' "$REPLACED"
+print_switches_changed() {
+  changed=$(guild_changed_keys)
+  [ -n "$changed" ] || return 0
+  replace_all "$changed" ' ' ', '
+  printf '\n## Guild switches changed\n\n%s\n' "$REPLACED"
 }
 
 is_suppressed() {
@@ -100,7 +101,7 @@ main() {
   ROOT_FORWARD=$REPLACED
   rendered=$(render_file "$root/$part") || return 0
   printf '%s\n' "$rendered"
-  [ "${part##*/}" != always-on.md ] || print_switches_off
+  [ "${part##*/}" != always-on.md ] || print_switches_changed
 }
 
 (main "$@") 2>/dev/null

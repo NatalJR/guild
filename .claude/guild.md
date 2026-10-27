@@ -2,7 +2,7 @@
 
 ## Identity
 
-guild: a project-agnostic Claude Code plugin (agents, one skill, bash hooks, injected context, charter convention). Repository `E:\dev\guild`, GitHub `NatalJR/guild`. Runtime for hooks: POSIX sh only (dash or bash on Linux and macOS, Git Bash's sh on Windows). No package manager, no dependencies, no build step.
+guild: a project-agnostic Claude Code plugin (agents, the guild and git skills, POSIX sh hooks, injected context with switches, two workflows, charter convention). Repository `E:\dev\guild`, GitHub `NatalJR/guild`. Runtime for hooks: POSIX sh only (dash or bash on Linux and macOS, Git Bash's sh on Windows). No package manager, no dependencies, no build step.
 
 ## Verify
 
