@@ -1,6 +1,6 @@
 # Guild delegation DAG
 
-Decision graph: when the main thread delegates to `guild:` subagents vs works inline. Executor skill: `/guild <task>` (`SKILL.md` beside this file) walks it. Charter: `<project>/.claude/guild.md`. Project nouns (commands, areas, tracker, QA limits, forbidden operations, doc map, git conventions) live in its sections; this file names the section, never the noun.
+Decision graph: when the main thread delegates to `guild:` subagents vs works inline. The walk order is the `## Operating procedure (default mode)` injected into every session (`context/procedure.md`); `/guild <task>` (`SKILL.md` beside this file) only forces that walk on a trivial-looking request. Charter: `<project>/.claude/guild.md`. Project nouns (commands, areas, tracker, QA limits, forbidden operations, doc map, git conventions) live in its sections; this file names the section, never the noun.
 
 ```mermaid
 flowchart TD

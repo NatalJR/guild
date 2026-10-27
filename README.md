@@ -5,7 +5,7 @@
 A private Claude Code plugin owned by NatalJR: a project-agnostic delegation crew. It ships:
 
 - Six agents: `guild:investigator`, `guild:builder`, `guild:architect`, `guild:reviewer`, `guild:security`, `guild:scribe`.
-- One orchestration skill, `/guild <task>`. It walks a delegation DAG: classify, investigate, scope gate, design gate, implement, review, report. It also carries the cleanup-pass and docs-sync procedures and the parallel-wave contracts.
+- A default operating procedure (`context/procedure.md`), injected at session start, so every coding request walks the delegation DAG without a slash command: classify, investigate, scope gate, design gate, implement, review, report. `skills/guild/DAG.md` carries the node rules, dispatch modes, cleanup-pass and docs-sync procedures and the parallel-wave contracts. `/guild <task>` only forces the walk on a request that looks trivial.
 - Hooks: always-on context injection at session start, per-prompt reinforcement, a deny rule for AI attribution in git commits and PRs, an emoji scan on every file edit, and a subagent receipt-contract check.
 - A per-project charter convention.
 
@@ -30,9 +30,10 @@ The rationale is cost tiering (cheap scouting, mid-cost implementation, the stro
 .claude-plugin/plugin.json      plugin manifest
 .claude-plugin/marketplace.json local marketplace entry
 agents/                         the six agent definitions
-skills/guild/                   the /guild orchestration skill
+skills/guild/                   DAG.md (binding rules) + the /guild force-the-walk skill
 hooks/                          hook definitions and scripts
-context/always-on.md            context injected at session start
+context/always-on.md            style + universal rules, injected at session start
+context/procedure.md            default operating procedure (the DAG walk), injected at session start
 charter/SCHEMA.md               charter contract (headings, consumers, content)
 charter/TEMPLATE.md             blank charter to copy into a project
 ```
@@ -85,7 +86,7 @@ Update with `/plugin update guild`.
 
 | Event | What it does | Exit behaviour |
 |---|---|---|
-| SessionStart | Injects `context/always-on.md` as hidden context | Exit 0; never blocks |
+| SessionStart | Injects `context/always-on.md` + `context/procedure.md` as hidden context, with the plugin root substituted | Exit 0; never blocks |
 | UserPromptSubmit | Per-prompt reinforcement of the core rules | Exit 0; never blocks |
 | PreToolUse (git commit, PR creation) | Denies AI attribution in commit messages and PR text | Blocks on a match; allows otherwise |
 | PostToolUse (file edits) | Scans the edited file for emoji characters | Reports a violation to the agent on a match; exit 0 otherwise |
