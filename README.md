@@ -27,6 +27,45 @@ Models are pinned per agent (the shipped defaults; see Model and effort per agen
 
 The rationale is cost tiering (cheap scouting, mid-cost implementation, the strongest model only for security and orchestration) and wall-clock parallelism, not context saving.
 
+## The DAG
+
+Every coding request walks this graph; the full flowchart with every edge and terminal token is in `skills/guild/DAG.md`.
+
+```mermaid
+flowchart TD
+    T[Task] --> CLS{Classify}
+    CLS -->|answer already in context| INLINE[Answer inline<br/>no subagent]
+    CLS -->|"where is / what calls<br/>edit, site unknown"| INV["guild:investigator (haiku)"]
+    CLS -->|"edit, exact path:line known"| SCOPE{Scope gate}
+    CLS -->|"review this diff (non-security)"| REV["guild:reviewer<br/>norms"]
+    CLS -->|find bugs in this diff| CR["code-review<br/>correctness"]
+    CLS -->|security review| SEC["guild:security<br/>security"]
+    CLS -->|cleanup pass / end of phase| CLEAN[Cleanup pass<br/>+ docs sync at phase close]
+    CLEAN -.->|slices through the procedure| SCOPE
+    INV --> MAP["Site map<br/>path:line"]
+    MAP --> SCOPE
+    SCOPE -->|"surgical, <=2 files,<br/>no new abstraction"| BLD["guild:builder<br/>1-2 files"]
+    SCOPE -->|"3+ files / new feature /<br/>cross-cutting"| DESIGN{Design gate}
+    DESIGN -->|"obvious: spec<br/>wide space: Plan options, spec"| ARC["guild:architect<br/>3+ files"]
+    BLD --> TOKEN{First-line token}
+    ARC --> TOKEN
+    TOKEN -->|"too-big."| ARC
+    TOKEN -->|"ambiguous. / regressed.<br/>clarify or recover, re-dispatch"| SCOPE
+    TOKEN -->|"need-map."| INV
+    TOKEN -->|receipt| RCPT["Receipt<br/>verified: OK"]
+    RCPT -->|every passed edit| REV
+    RCPT -->|substantive diff| CR
+    RCPT -->|security-relevant diff| SEC
+    REV --> VERDICT{Findings?}
+    CR --> VERDICT
+    SEC --> VERDICT
+    VERDICT -->|"No issues."| REPORT[Report]
+    VERDICT -->|red / yellow| FIX{"Fix loop<br/>(max 2)"}
+    FIX -->|"<=2 files"| BLD
+    FIX -->|3+ files| ARC
+    FIX -->|"cap exhausted: residual"| REPORT
+```
+
 ## Layout
 
 ```
