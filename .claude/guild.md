@@ -2,13 +2,14 @@
 
 ## Identity
 
-guild: a project-agnostic Claude Code plugin (agents, the guild and git skills, POSIX sh hooks, injected context with switches, two workflows, charter convention). Repository `E:\dev\guild`, GitHub `NatalJR/guild`. Runtime for hooks: POSIX sh only (dash or bash on Linux and macOS, Git Bash's sh on Windows). No package manager, no dependencies, no build step.
+guild: a project-agnostic Claude Code plugin (agents, the guild and git skills, POSIX sh hooks, injected context with switches, two workflows, charter convention). Repository `E:\dev\guild`, GitHub `NatalJR/guild`. Runtime for hooks: POSIX sh (dash or bash on Linux and macOS, Git Bash's sh on Windows), with a PowerShell 7 fallback implementation used by the harness only when Git Bash is absent on Windows; both implementations run the same shared test cases. No package manager, no dependencies, no build step.
 
 ## Verify
 
 ```bash
 sh tests/run.sh                                                    # hook contract suite on the host sh (Git Bash here); the lint gate
 wsl -e sh -c 'cd /mnt/e/dev/guild && sh tests/run.sh'               # same suite under dash on WSL Ubuntu (strict POSIX); both must pass before a commit
+pwsh -NoProfile -File tests/run.ps1                                # PowerShell 7 fallback implementations, same shared cases
 env -u CLAUDECODE claude plugin validate .                         # manifest and layout validation
 sh hooks/check-context-size.sh                                   # every rendered context part stays under 9000 bytes
 for f in workflows/*.js; do { printf 'async function workflow() {
@@ -32,7 +33,7 @@ Hook scripts are exercised by piping a JSON payload on stdin and asserting the e
 
 ## Rules
 
-none beyond the universal rules; shell specifics: strict POSIX sh (`#!/bin/sh`, no bash-isms: no `[[`, arrays, `local`, `function`, `pipefail`), `set -u` in every script, no `eval`, `.` only on files inside the plugin, quote every expansion, POSIX ERE only (`grep -E`), no `grep -P`, no `jq`, no `node`, no `python`, no `pwsh`.
+none beyond the universal rules; shell specifics: strict POSIX sh (`#!/bin/sh`, no bash-isms: no `[[`, arrays, `local`, `function`, `pipefail`), `set -u` in every script, no `eval`, `.` only on files inside the plugin, quote every expansion, POSIX ERE only (`grep -E`), no `grep -P`, no `jq`, no `node`, no `python`. The `.ps1` twins are PowerShell 5.1-compatible syntax, behaviour-identical to their `.sh` twin, and never the primary path.
 
 ## Security
 

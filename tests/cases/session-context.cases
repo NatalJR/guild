@@ -1,0 +1,266 @@
+# Shared hook cases. tests/run.sh runs every record against hooks/<hook>.sh and tests/run.ps1
+# against hooks/<hook>.ps1, so both implementations answer the same contract.
+#
+# Format (parsed line by line by both runners, no dependencies):
+# - One record per block; blocks are separated by one or more blank lines. A line starting with
+#   `#` is a comment. Every other line is `field=value`, split at the first `=`; the value runs
+#   verbatim to the end of the line (no quoting, no trimming; a trailing CR is dropped).
+# - Fields; `case` and `hook` are required, the rest optional, `+` marks a repeatable field:
+#     case=<description>      printed on failure
+#     hook=<name>             hooks/<name>.sh or hooks/<name>.ps1
+#     part=<argument>         the one argument passed to the hook
+#     user-conf=<line> +      one line of ~/.claude/guild.conf, HOME pointed at a scratch dir
+#     project-conf=<line> +   one line of <project>/.claude/guild.conf, CLAUDE_PROJECT_DIR pointed
+#                             at a scratch dir that also holds a copy of fixtures/project/emoji.md
+#     env=<NAME>=<value> +    set for this case
+#     unset=<NAME> +          removed from the environment for this case
+#     payload=<json>          stdin, sent without a trailing newline; empty when absent
+#     exit=<n>                the exit code
+#     stderr=<text>           stderr contains text
+#     stderr-equals=<text>    stderr equals text
+#     stdout=<text>           stdout contains text
+#     stdout-lacks=<text>     stdout does not contain text
+#     stdout-equals=<text>    stdout equals text (an empty value: stdout is empty)
+#     stdout-under=<n>        stdout plus one newline is under n bytes
+# - Captured stdout and stderr lose their trailing newlines before any comparison.
+# - Placeholders, replaced in every value once the environment is set: %NL% a newline,
+#   %FIXTURES% the tests/fixtures directory, %PROJECT% the CLAUDE_PROJECT_DIR of the case,
+#   %ROOT% the plugin root as the hooks render it (forward slashes).
+# - Environment before each case: CLAUDE_PLUGIN_ROOT the repository, CLAUDE_PROJECT_DIR
+#   fixtures/project, HOME fixtures/home (no guild.conf), GUILD_HOOK_TRACE and
+#   CLAUDE_PLUGIN_OPTION_GIT_HANDLING unset. Setup order: user-conf, project-conf, env, unset.
+# - A record is one case; it passes when every expectation holds.
+
+case=session-context: always-on has Reply style by default
+hook=session-context
+part=context/always-on.md
+stdout=## Reply style
+
+case=session-context: always-on carries the length budget
+hook=session-context
+part=context/always-on.md
+stdout=- Length budget: a status update is at most six lines.
+
+case=session-context: shipped defaults print no switches-changed section
+hook=session-context
+part=context/always-on.md
+stdout-lacks=## Guild switches changed
+
+case=session-context: git.handling on prints git.handling=on
+hook=session-context
+part=context/always-on.md
+user-conf=git.handling = on
+stdout=## Guild switches changed%NL%%NL%git.handling=on
+
+case=session-context: review.security off prints review.security=off
+hook=session-context
+part=context/always-on.md
+project-conf=review.security = off
+stdout=## Guild switches changed%NL%%NL%review.security=off
+
+case=session-context: switch set to its default prints no switches-changed section
+hook=session-context
+part=context/always-on.md
+user-conf=git.handling = off
+stdout-lacks=## Guild switches changed
+
+case=session-context: always-on default has no marker lines
+hook=session-context
+part=context/always-on.md
+stdout-lacks={{
+
+case=session-context: style.terse off drops Reply style
+hook=session-context
+part=context/always-on.md
+user-conf=style.terse = off
+stdout-lacks=## Reply style
+
+case=session-context: style.terse off keeps Delegation
+hook=session-context
+part=context/always-on.md
+user-conf=style.terse = off
+stdout=## Delegation
+
+case=session-context: switches-changed section lists the off key
+hook=session-context
+part=context/always-on.md
+user-conf=style.terse = off
+stdout=## Guild switches changed%NL%%NL%style.terse=off
+
+case=session-context: rules.universal off drops Universal code rules
+hook=session-context
+part=context/always-on.md
+user-conf=rules.universal = off
+stdout-lacks=## Universal code rules
+
+case=session-context: switches-changed entries are comma separated
+hook=session-context
+part=context/always-on.md
+user-conf=style.terse = off
+user-conf=review.security = off
+stdout=review.security=off, style.terse=off
+
+case=session-context: switches-changed section only on the always-on part
+hook=session-context
+part=context/procedure.md
+user-conf=review.security = off
+stdout-lacks=## Guild switches changed
+
+case=session-context: procedure has no marker lines
+hook=session-context
+part=context/procedure.md
+stdout-lacks={{
+
+case=session-context: PLUGIN_ROOT replaced with a forward-slash path
+hook=session-context
+part=context/procedure.md
+stdout=%ROOT%/skills/guild/DAG.md
+
+case=session-context: no PLUGIN_ROOT placeholder survives
+hook=session-context
+part=context/procedure.md
+stdout-lacks={{PLUGIN_ROOT}}
+
+case=session-context: procedure has Step 3a by default
+hook=session-context
+part=context/procedure.md
+stdout=### Step 3a: Design gate
+
+case=session-context: rendered procedure under 9000 bytes
+hook=session-context
+part=context/procedure.md
+stdout-under=9000
+
+case=session-context: procedure empty when procedure.default_mode off
+hook=session-context
+part=context/procedure.md
+user-conf=procedure.default_mode = off
+exit=0
+stdout-equals=
+
+case=session-context: always-on still printed when procedure.default_mode off
+hook=session-context
+part=context/always-on.md
+user-conf=procedure.default_mode = off
+stdout=procedure.default_mode
+
+case=session-context: Step 3a absent when procedure.design_gate off
+hook=session-context
+part=context/procedure.md
+user-conf=procedure.design_gate = off
+stdout-lacks=### Step 3a
+
+case=session-context: Step 4 still follows when Step 3a is dropped
+hook=session-context
+part=context/procedure.md
+user-conf=procedure.design_gate = off
+stdout=all in one message.%NL%%NL%### Step 4
+
+case=session-context: site-map rule sits between the architect route and its prompt contents
+hook=session-context
+part=context/procedure.md
+stdout=`guild:architect`.%NL%  NEVER dispatch without an investigator site map.
+
+case=session-context: investigate_first off drops the site-map rule
+hook=session-context
+part=context/procedure.md
+user-conf=procedure.investigate_first = off
+stdout-lacks=NEVER dispatch without an investigator site map
+
+case=session-context: investigate_first off keeps the architect prompt contents
+hook=session-context
+part=context/procedure.md
+user-conf=procedure.investigate_first = off
+stdout=`guild:architect`.%NL%  Prompt gets: task spec
+
+case=session-context: sharding off drops the shard rule
+hook=session-context
+part=context/procedure.md
+user-conf=procedure.sharding = off
+stdout-lacks=shard into parallel slices
+
+case=session-context: review switches off keep the verdict paragraph
+hook=session-context
+part=context/procedure.md
+user-conf=review.norms = off
+user-conf=review.correctness = off
+user-conf=review.security = off
+stdout=Verdicts:
+
+case=session-context: review switches off drop the three dimensions
+hook=session-context
+part=context/procedure.md
+user-conf=review.norms = off
+user-conf=review.correctness = off
+user-conf=review.security = off
+stdout-lacks=**Norms/structure**
+
+case=session-context: cleanup_pass off drops the cleanup section and route
+hook=session-context
+part=context/procedure.md
+user-conf=procedure.cleanup_pass = off
+stdout-lacks=Cleanup pass
+
+case=session-context: cleanup_pass off keeps docs sync
+hook=session-context
+part=context/procedure.md
+user-conf=procedure.cleanup_pass = off
+stdout=Then DAG.md `## Docs sync`.
+
+case=session-context: docs.sync off drops the docs sync line
+hook=session-context
+part=context/procedure.md
+user-conf=docs.sync = off
+stdout-lacks=## Docs sync
+
+case=session-context: missing part prints nothing
+hook=session-context
+part=context/missing.md
+exit=0
+stdout-equals=
+
+case=session-context: unset CLAUDE_PLUGIN_ROOT derives the root
+hook=session-context
+part=context/procedure.md
+unset=CLAUDE_PLUGIN_ROOT
+stdout=/skills/guild/DAG.md
+
+case=session-context: Step 6 routes commits through the project git skill by default
+hook=session-context
+part=context/procedure.md
+stdout=Paraphrase receipts.%NL%Commits only on request, by the main thread, through the project's git skill named under `## Git`.%NL%QA surfaces
+
+case=session-context: Step 6 default lacks the guild git skill wording
+hook=session-context
+part=context/procedure.md
+stdout-lacks=Commits only on request, by the main thread, through the guild `git` skill.
+
+case=session-context: Step 6 routes commits through the guild git skill when git.handling is on
+hook=session-context
+part=context/procedure.md
+project-conf=git.handling = on
+stdout=Paraphrase receipts.%NL%Commits only on request, by the main thread, through the guild `git` skill.%NL%QA surfaces
+
+case=session-context: Step 6 with git.handling on lacks the project git skill wording
+hook=session-context
+part=context/procedure.md
+project-conf=git.handling = on
+stdout-lacks=Commits only on request, by the main thread, through the project's git skill named under `## Git`.
+
+case=session-context: git.handling on leaves no marker lines in the procedure
+hook=session-context
+part=context/procedure.md
+project-conf=git.handling = on
+stdout-lacks={{
+
+case=session-context: rendered procedure with git.handling on under 9000 bytes
+hook=session-context
+part=context/procedure.md
+project-conf=git.handling = on
+stdout-under=9000
+
+case=session-context: plugin option true picks the guild git skill wording
+hook=session-context
+part=context/procedure.md
+env=CLAUDE_PLUGIN_OPTION_GIT_HANDLING=true
+stdout=Commits only on request, by the main thread, through the guild `git` skill.

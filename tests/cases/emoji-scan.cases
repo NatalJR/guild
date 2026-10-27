@@ -1,0 +1,94 @@
+# Shared hook cases. tests/run.sh runs every record against hooks/<hook>.sh and tests/run.ps1
+# against hooks/<hook>.ps1, so both implementations answer the same contract.
+#
+# Format (parsed line by line by both runners, no dependencies):
+# - One record per block; blocks are separated by one or more blank lines. A line starting with
+#   `#` is a comment. Every other line is `field=value`, split at the first `=`; the value runs
+#   verbatim to the end of the line (no quoting, no trimming; a trailing CR is dropped).
+# - Fields; `case` and `hook` are required, the rest optional, `+` marks a repeatable field:
+#     case=<description>      printed on failure
+#     hook=<name>             hooks/<name>.sh or hooks/<name>.ps1
+#     part=<argument>         the one argument passed to the hook
+#     user-conf=<line> +      one line of ~/.claude/guild.conf, HOME pointed at a scratch dir
+#     project-conf=<line> +   one line of <project>/.claude/guild.conf, CLAUDE_PROJECT_DIR pointed
+#                             at a scratch dir that also holds a copy of fixtures/project/emoji.md
+#     env=<NAME>=<value> +    set for this case
+#     unset=<NAME> +          removed from the environment for this case
+#     payload=<json>          stdin, sent without a trailing newline; empty when absent
+#     exit=<n>                the exit code
+#     stderr=<text>           stderr contains text
+#     stderr-equals=<text>    stderr equals text
+#     stdout=<text>           stdout contains text
+#     stdout-lacks=<text>     stdout does not contain text
+#     stdout-equals=<text>    stdout equals text (an empty value: stdout is empty)
+#     stdout-under=<n>        stdout plus one newline is under n bytes
+# - Captured stdout and stderr lose their trailing newlines before any comparison.
+# - Placeholders, replaced in every value once the environment is set: %NL% a newline,
+#   %FIXTURES% the tests/fixtures directory, %PROJECT% the CLAUDE_PROJECT_DIR of the case,
+#   %ROOT% the plugin root as the hooks render it (forward slashes).
+# - Environment before each case: CLAUDE_PLUGIN_ROOT the repository, CLAUDE_PROJECT_DIR
+#   fixtures/project, HOME fixtures/home (no guild.conf), GUILD_HOOK_TRACE and
+#   CLAUDE_PLUGIN_OPTION_GIT_HANDLING unset. Setup order: user-conf, project-conf, env, unset.
+# - A record is one case; it passes when every expectation holds.
+
+case=emoji-scan: clean file allowed
+hook=emoji-scan
+payload={"session_id":"s","hook_event_name":"PostToolUse","tool_name":"Write","tool_input":{"file_path":"%FIXTURES%/project/clean.md","content":"x"},"tool_response":{"filePath":"%FIXTURES%/project/clean.md"}}
+exit=0
+
+case=emoji-scan: emoji blocked at line 3
+hook=emoji-scan
+payload={"session_id":"s","hook_event_name":"PostToolUse","tool_name":"Write","tool_input":{"file_path":"%FIXTURES%/project/emoji.md","content":"x"},"tool_response":{"filePath":"%FIXTURES%/project/emoji.md"}}
+exit=2
+stderr=emoji.md at line 3 (first hit)
+
+case=emoji-scan: png skipped
+hook=emoji-scan
+payload={"session_id":"s","hook_event_name":"PostToolUse","tool_name":"Write","tool_input":{"file_path":"%FIXTURES%/project/image.png","content":"x"},"tool_response":{"filePath":"%FIXTURES%/project/image.png"}}
+exit=0
+
+case=emoji-scan: file outside the project skipped
+hook=emoji-scan
+payload={"session_id":"s","hook_event_name":"PostToolUse","tool_name":"Write","tool_input":{"file_path":"%FIXTURES%/outside/outside.md","content":"x"},"tool_response":{"filePath":"%FIXTURES%/outside/outside.md"}}
+exit=0
+
+case=emoji-scan: dot-dot path leaving the project skipped
+hook=emoji-scan
+payload={"session_id":"s","hook_event_name":"PostToolUse","tool_name":"Write","tool_input":{"file_path":"%FIXTURES%/project/../outside/outside.md","content":"x"},"tool_response":{"filePath":"%FIXTURES%/project/../outside/outside.md"}}
+exit=0
+
+case=emoji-scan: missing file skipped
+hook=emoji-scan
+payload={"session_id":"s","hook_event_name":"PostToolUse","tool_name":"Write","tool_input":{"file_path":"%FIXTURES%/project/missing.md","content":"x"},"tool_response":{"filePath":"%FIXTURES%/project/missing.md"}}
+exit=0
+
+case=emoji-scan: empty path skipped
+hook=emoji-scan
+payload={"session_id":"s","hook_event_name":"PostToolUse","tool_name":"Write","tool_input":{"file_path":"","content":"x"},"tool_response":{"filePath":""}}
+exit=0
+
+case=emoji-scan: payload without file_path skipped
+hook=emoji-scan
+payload={"tool_input":{"content":"x"}}
+exit=0
+
+case=emoji-scan: no project dir scans anywhere
+hook=emoji-scan
+unset=CLAUDE_PROJECT_DIR
+payload={"session_id":"s","hook_event_name":"PostToolUse","tool_name":"Write","tool_input":{"file_path":"%FIXTURES%/outside/outside.md","content":"x"},"tool_response":{"filePath":"%FIXTURES%/outside/outside.md"}}
+exit=2
+stderr=line 3
+
+case=emoji-scan: switch off in user conf allows the emoji file
+hook=emoji-scan
+user-conf=hooks.emoji_scan = off
+payload={"session_id":"s","hook_event_name":"PostToolUse","tool_name":"Write","tool_input":{"file_path":"%FIXTURES%/project/emoji.md","content":"x"},"tool_response":{"filePath":"%FIXTURES%/project/emoji.md"}}
+exit=0
+
+case=emoji-scan: project conf turns the user-disabled scan back on
+hook=emoji-scan
+user-conf=hooks.emoji_scan = off
+project-conf=hooks.emoji_scan = on
+payload={"session_id":"s","hook_event_name":"PostToolUse","tool_name":"Write","tool_input":{"file_path":"%PROJECT%/emoji.md","content":"x"},"tool_response":{"filePath":"%PROJECT%/emoji.md"}}
+exit=2
+stderr=line 3

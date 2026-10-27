@@ -1,0 +1,103 @@
+# SubagentStop hook, PowerShell twin of receipt-check.sh (the primary implementation; the
+# harness runs this one only where no Git Bash is found): enforces the receipt contract on a
+# subagent's final message.
+# Payload fields (confirmed by live trace): agent_type, last_assistant_message, stop_hook_active.
+# Unknown shape -> no-op (exit 0). Switch: hooks.receipt_check.
+# Matching follows `LC_ALL=C grep -i -E`: the line is ASCII-lowercased and the token pattern is
+# written in lowercase; the excerpt is the first 80 bytes, as GNU `cut -c` takes them.
+# A malformed payload or an internal error never blocks.
+# Windows PowerShell 5.1 compatible syntax.
+Set-StrictMode -Version 2.0
+$ErrorActionPreference = 'Stop'
+
+$RECEIPT_TOKEN_PATTERN = '^(plan:|verify:|verified:|docs-sync\.|no issues\.|no match\.|[0-9]+ findings\.|too-big\.|too-small\.|needs-confirm\.|ambiguous\.|regressed\.|need-map\.|blocked\.|not-security\.|security-scope\.|defs:|refs:|callers:|tests:|sites:|imports:)'
+$LOCATION_PATTERN = '^[^ \t\n\v\f\r]+:[0-9]+'
+$EXCERPT_BYTES = 80
+$TRACE_BYTES = 200
+$REJECT_PREFIX = 'Receipt contract: your final message must START with a terminal token or a receipt line (plan:, verify:, verified:, docs-sync., No issues., No match., N findings., too-big., too-small., needs-confirm., ambiguous., need-map., blocked., regressed., not-security., security-scope., or a path:line row). Got: "'
+$REJECT_SUFFIX = '". Rewrite your final message with the token on line 1 and stop again.' + "`n"
+
+# Diagnostic: set GUILD_HOOK_TRACE=<file> to log the payload shape;
+# used once to confirm which field carries the subagent's final message.
+function Write-PayloadTrace([string]$Payload) {
+    $tracePath = [string]$env:GUILD_HOOK_TRACE
+    if ($tracePath -eq '') { return }
+    try {
+        $file = New-Object System.IO.FileStream -ArgumentList $tracePath, ([System.IO.FileMode]::Append), ([System.IO.FileAccess]::Write)
+        try { Write-HookStream $file (Get-TraceRecord $Payload) } finally { $file.Dispose() }
+    } catch {
+        return
+    }
+}
+
+# The trace record: UTC timestamp and event name, then the first payload bytes.
+function Get-TraceRecord([string]$Payload) {
+    $stamp = [System.DateTime]::UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [System.Globalization.CultureInfo]::InvariantCulture)
+    $record = New-Object System.IO.MemoryStream
+    Add-Bytes $record ($PAYLOAD_UTF8.GetBytes($stamp + " SubagentStop`n"))
+    Add-Bytes $record (Get-LeadingBytes $Payload $TRACE_BYTES)
+    Add-Bytes $record ([byte[]]@(10))
+    return , $record.ToArray()
+}
+
+function Add-Bytes([System.IO.MemoryStream]$Buffer, [byte[]]$Bytes) {
+    $Buffer.Write($Bytes, 0, $Bytes.Length)
+}
+
+# The first COUNT bytes of TEXT encoded as UTF-8 (a multibyte character may be cut).
+function Get-LeadingBytes([string]$Text, [int]$Count) {
+    $bytes = $PAYLOAD_UTF8.GetBytes($Text)
+    if ($bytes.Length -le $Count) { return , $bytes }
+    $leading = New-Object byte[] $Count
+    [System.Array]::Copy($bytes, $leading, $Count)
+    return , $leading
+}
+
+function Test-GuildAgent([string]$AgentType) {
+    return $AgentType -cmatch '^[Gg][Uu][Ii][Ll][Dd]:'
+}
+
+# Scope: only guild agents carry the receipt contract, and a stop this hook already
+# re-prompted once (stop_hook_active) goes through to avoid a block loop.
+function Test-InScope([string]$Payload) {
+    $agentType = Get-PayloadField $Payload 'agent_type'
+    if ($null -eq $agentType) { return $false }
+    return (Test-GuildAgent $agentType) -and -not (Test-PayloadBool $Payload 'stop_hook_active')
+}
+
+function Test-ReceiptLine([string]$Line) {
+    if ([regex]::IsMatch((ConvertTo-AsciiLowerCase $Line), $RECEIPT_TOKEN_PATTERN)) { return $true }
+    return [regex]::IsMatch($Line, $LOCATION_PATTERN)
+}
+
+function Write-Rejection([string]$Line) {
+    $message = New-Object System.IO.MemoryStream
+    Add-Bytes $message ($PAYLOAD_UTF8.GetBytes($REJECT_PREFIX))
+    Add-Bytes $message (Get-LeadingBytes $Line $EXCERPT_BYTES)
+    Add-Bytes $message ($PAYLOAD_UTF8.GetBytes($REJECT_SUFFIX))
+    Write-HookStream ([Console]::OpenStandardError()) ($message.ToArray())
+}
+
+# The exit status: 2 after printing the rejection, 0 otherwise.
+function Invoke-ReceiptCheck {
+    Import-GuildConfig
+    if (-not (Get-GuildSwitch 'hooks.receipt_check')) { return 0 }
+    $payload = Read-Payload
+    Write-PayloadTrace $payload
+    if (-not (Test-InScope $payload)) { return 0 }
+    $finalText = Get-PayloadField $payload 'last_assistant_message'
+    if ($null -eq $finalText) { return 0 }
+    $firstLine = Get-FirstNonEmptyLine $finalText
+    if ($firstLine -eq '' -or (Test-ReceiptLine $firstLine)) { return 0 }
+    Write-Rejection $firstLine
+    return 2
+}
+
+try {
+    . "$PSScriptRoot/lib/payload.ps1"
+    . "$PSScriptRoot/lib/config.ps1"
+    $status = Invoke-ReceiptCheck
+} catch {
+    $status = 0
+}
+exit $status

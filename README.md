@@ -6,7 +6,7 @@ A private Claude Code plugin owned by NatalJR: a project-agnostic delegation cre
 
 - Six agents: `guild:investigator`, `guild:builder`, `guild:architect`, `guild:reviewer`, `guild:security`, `guild:scribe`.
 - A default operating procedure (`context/procedure.md`), injected at session start, so every coding request walks the delegation DAG without a slash command: classify, investigate, scope gate, design gate, implement, review, report. `skills/guild/DAG.md` carries the node rules, dispatch modes, cleanup-pass and docs-sync procedures and the parallel-wave contracts. `/guild <task>` only forces the walk on a request that looks trivial.
-- Hooks (POSIX sh): always-on context injection at session start, per-prompt reinforcement, an emoji scan on every file edit, and a subagent receipt-contract check.
+- Hooks (POSIX sh, each with a PowerShell twin for Windows machines without Git Bash): always-on context injection at session start, per-prompt reinforcement, an emoji scan on every file edit, and a subagent receipt-contract check.
 - Opt-in git handling: a generic `git` skill plus a guard hook that denies AI attribution, `--no-verify` and forced pushes (see Git handling).
 - Switches: every hook and the optional procedure steps can be turned off per user or per project (see Configuration).
 - Two workflows for the review and cleanup-pass waves.
@@ -35,8 +35,8 @@ The rationale is cost tiering (cheap scouting, mid-cost implementation, the stro
 agents/                         the six agent definitions
 skills/guild/                   DAG.md (binding rules) + the /guild force-the-walk skill
 skills/git/                     generic git workflow skill, active only with git handling on
-hooks/                          hooks.json + the sh hook scripts
-hooks/lib/                      shared sh libraries: payload field access, switch table
+hooks/                          hooks.json + the sh hook scripts and their .ps1 PowerShell twins
+hooks/lib/                      shared libraries (sh, each with a .ps1 twin): payload field access, switch table
 hooks/check-context-size.sh     maintenance check: each rendered context part under 9000 bytes
 config/defaults.conf            switch defaults, one commented line per key
 context/always-on.md            style + universal rules, injected at session start
@@ -46,11 +46,15 @@ charter/TEMPLATE.md             blank charter to copy into a project
 workflows/cleanup-audit.js      /guild:cleanup-audit: cleanup-pass audit wave; allow rule Workflow(cleanup-audit)
 workflows/review-wave.js        /guild:review-wave: pre-commit review wave over one diff; allow rule Workflow(review-wave)
 tests/run.sh                    hook contract suite (sh tests/run.sh), fixtures under tests/fixtures/
+tests/run.ps1                   the same contract for the PowerShell twins (pwsh -NoProfile -File tests/run.ps1)
+tests/cases/                    payload-driven cases shared by both runners, one file per hook (format in each file)
 ```
 
 ## Requirements
 
-POSIX sh: dash or bash on Linux and macOS, Git Bash's sh on Windows. That is the same requirement as the Claude Code Bash tool, so any machine that runs Claude Code already has it. Nothing else: the hooks use only the standard utilities that ship with that shell (`cat`, `sed`, `grep -E`, `tr`, `cut`, `head`, `dd`, `date`, `sort`, `wc`), and no PowerShell, `jq`, `node` or `python`.
+POSIX sh is the primary runtime: dash or bash on Linux and macOS, Git Bash's sh on Windows. That is the same requirement as the Claude Code Bash tool, so any machine that runs Claude Code already has it. Nothing else: the sh hooks use only the standard utilities that ship with that shell (`cat`, `sed`, `grep -E`, `tr`, `cut`, `head`, `dd`, `date`, `sort`, `wc`), and no `jq`, `node` or `python`.
+
+On Windows without Git Bash, Claude Code runs hook commands through PowerShell, and each hook entry then runs the PowerShell 7 twin of its script (`hooks/<script>.ps1`, also valid Windows PowerShell 5.1 syntax) automatically; there is nothing to configure. The twins use only PowerShell and .NET, read the same switches, and produce the same stdout, stderr and exit codes as the sh scripts; both implementations run the shared cases in `tests/cases/`.
 
 ## Install
 
@@ -154,7 +158,14 @@ To enable it, answer the prompt Claude Code shows when the plugin is enabled, or
 
 ## Hooks
 
-Every entry runs `sh "${CLAUDE_PLUGIN_ROOT}/hooks/<script>.sh"`.
+Every entry is a two-line sh/PowerShell polyglot, so one `hooks.json` serves both shells with no `shell` field:
+
+```
+exec sh "${CLAUDE_PLUGIN_ROOT}/hooks/<script>.sh" [part]
+& "${CLAUDE_PLUGIN_ROOT}/hooks/<script>.ps1" [part]; exit $LASTEXITCODE
+```
+
+Claude Code runs a hook command through `sh -c` on Linux and macOS and through Git Bash on Windows when it finds it; otherwise it uses PowerShell. Under sh, `exec` replaces the shell with the sh script, so the second line is never read. Under PowerShell, `exec` is not a command: the first line fails with a non-terminating error and the second line runs the PowerShell twin and exits with its status. The table names the sh scripts; each `.ps1` twin behaves the same.
 
 | Event | Script | What it does | Exit behaviour | Switch |
 |---|---|---|---|---|
@@ -165,7 +176,7 @@ Every entry runs `sh "${CLAUDE_PLUGIN_ROOT}/hooks/<script>.sh"`.
 | PostToolUse (`Edit`, `Write`) | `emoji-scan.sh` | Scans the written file (inside the project, non-binary) for emoji | Exit 2 naming the first hit line, reported to the agent; exit 0 otherwise | `hooks.emoji_scan` |
 | SubagentStop | `receipt-check.sh` | Checks the receipt contract (first-line terminal token) on `guild:*` agents | Exit 2 blocks the stop once on a malformed receipt; allows otherwise | `hooks.receipt_check` |
 
-SessionStart has one entry per context part because the harness caps a single hook's stdout near 10KB and replaces anything larger with a 2KB preview. `sh hooks/check-context-size.sh` (a maintenance check, not a hook) renders each part with the shipped defaults and fails when any part exceeds 9000 bytes. A malformed payload or an internal error never blocks: the hook prints nothing and exits 0. `sh tests/run.sh` is the contract suite for all of the above.
+SessionStart has one entry per context part because the harness caps a single hook's stdout near 10KB and replaces anything larger with a 2KB preview. `sh hooks/check-context-size.sh` (a maintenance check, not a hook) renders each part with the shipped defaults and fails when any part exceeds 9000 bytes. A malformed payload or an internal error never blocks: the hook prints nothing and exits 0. `sh tests/run.sh` is the contract suite for all of the above; `pwsh -NoProfile -File tests/run.ps1` runs the same shared cases from `tests/cases/`, plus its own coded cases, against the PowerShell twins.
 
 ## Non-goals
 

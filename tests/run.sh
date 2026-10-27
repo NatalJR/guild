@@ -2,6 +2,10 @@
 # Hook contract suite: pipes JSON payloads into the hooks and asserts exit codes, stderr and
 # stdout. POSIX sh with no dependencies; runs as `sh tests/run.sh` under Git Bash's sh and
 # under dash from the same checkout (every path is derived from this script's location).
+# The payload-driven cases live in tests/cases/*.cases (format at the top of each file) and are
+# shared with tests/run.ps1, which runs them against the PowerShell twins; the cases that need
+# code (scratch roots, crafted bytes, library calls, config queries) stay below, and the ones
+# that exercise a twin are written in both runners.
 # Fixtures under tests/fixtures/** contain emoji bytes on purpose (emoji-scan cases); the
 # repository no-emoji rule exempts that directory. Cases needing a switch override write a
 # temporary guild.conf into a scratch HOME or project directory (never into the fixtures) or
@@ -32,6 +36,10 @@ PASSED=0
 FAILED=0
 CASE=''
 SCRATCH_SEQUENCE=0
+NL='
+'
+TAB=$(printf '\t')
+CR=$(printf '\r')
 
 # ---------------------------------------------------------------- harness
 
@@ -89,13 +97,6 @@ expect_stdout_lacks() {
   pass
 }
 
-# HOOK [ARG...]
-expect_stdout_empty() {
-  run_context "$@"
-  [ -z "$RUN_STDOUT" ] && [ "$RUN_EXIT" = 0 ] || { fail "exit $RUN_EXIT; stdout not empty: $(printf '%s\n' "$RUN_STDOUT" | head -n 2)"; return 0; }
-  pass
-}
-
 run_context() {
   context_hook=$1
   shift
@@ -108,15 +109,169 @@ expect_equal() {
   pass
 }
 
-# LIMIT HOOK [ARG...]: stdout byte count stays under LIMIT.
-expect_stdout_under() {
-  size_limit=$1
-  shift
-  run_context "$@"
-  printf '%s\n' "$RUN_STDOUT" >"$SCRATCH/size"
-  stdout_size=$(($(wc -c <"$SCRATCH/size")))
-  [ "$stdout_size" -lt "$size_limit" ] || { fail "stdout is $stdout_size bytes, limit $size_limit"; return 0; }
-  pass
+# ---------------------------------------------------------------- shared case runner (tests/cases)
+
+CASE_SEQUENCE=0
+
+case_reset() {
+  CASE_STARTED=no
+  CASE_NAME=''
+  CASE_HOOK=''
+  CASE_PART=''
+  CASE_HAS_PART=no
+  CASE_USER_CONF=''
+  CASE_PROJECT_CONF=''
+  CASE_ENV=''
+  CASE_UNSET=''
+  CASE_PAYLOAD=''
+  CASE_EXPECT=''
+  CASE_ERROR=''
+}
+
+# FIELD VALUE: records one `field=value` line of the current record.
+case_field() {
+  CASE_STARTED=yes
+  case "$1" in
+    'case') CASE_NAME=$2 ;;
+    'hook') CASE_HOOK=$2 ;;
+    'part') CASE_PART=$2; CASE_HAS_PART=yes ;;
+    'user-conf') CASE_USER_CONF="$CASE_USER_CONF$2$NL" ;;
+    'project-conf') CASE_PROJECT_CONF="$CASE_PROJECT_CONF$2$NL" ;;
+    'env') CASE_ENV="$CASE_ENV$2$NL" ;;
+    'unset') CASE_UNSET="$CASE_UNSET$2$NL" ;;
+    'payload') CASE_PAYLOAD=$2 ;;
+    'exit' | 'stderr' | 'stderr-equals' | 'stdout' | 'stdout-lacks' | 'stdout-equals' | 'stdout-under')
+      CASE_EXPECT="$CASE_EXPECT$1=$2$NL" ;;
+    *) CASE_ERROR="unknown field [$1]" ;;
+  esac
+}
+
+# FILE: runs every record of a case file, one counted case per record.
+run_case_file() {
+  case_reset
+  while IFS= read -r case_line || [ -n "$case_line" ]; do
+    case_line=${case_line%"$CR"}
+    case "$case_line" in
+      '') run_pending_case ;;
+      '#'*) ;;
+      *) case_field "${case_line%%=*}" "${case_line#*=}" ;;
+    esac
+  done <"$1"
+  run_pending_case
+}
+
+run_pending_case() {
+  [ "$CASE_STARTED" = yes ] || return 0
+  CASE_SEQUENCE=$((CASE_SEQUENCE + 1))
+  describe "${CASE_NAME:-record $CASE_SEQUENCE}"
+  if case_failure=$(run_case </dev/null 2>&1); then pass; else fail "$case_failure"; fi
+  case_reset
+}
+
+# Runs inside a command substitution, so the environment it sets up dies with the case.
+# Prints the reason and returns 1 when the record is malformed or an expectation misses.
+run_case() {
+  [ -z "$CASE_ERROR" ] || { printf '%s' "$CASE_ERROR"; return 1; }
+  [ -n "$CASE_NAME" ] && [ -n "$CASE_HOOK" ] && [ -f "$HOOKS/$CASE_HOOK.sh" ] || {
+    printf 'record needs case= and hook= naming an existing hook, got [%s]' "$CASE_HOOK"
+    return 1
+  }
+  apply_case_setup || return 1
+  expand_placeholders "$CASE_PAYLOAD"
+  if [ "$CASE_HAS_PART" = yes ]; then
+    run_hook "$CASE_HOOK.sh" "$EXPANDED" "$CASE_PART"
+  else
+    run_hook "$CASE_HOOK.sh" "$EXPANDED"
+  fi
+  check_expectations
+}
+
+apply_case_setup() {
+  if [ -n "$CASE_USER_CONF" ]; then
+    case_scratch_dir user
+    printf '%s' "$CASE_USER_CONF" >"$CASE_DIR/.claude/guild.conf"
+    HOME=$CASE_DIR
+  fi
+  if [ -n "$CASE_PROJECT_CONF" ]; then
+    case_scratch_dir project
+    printf '%s' "$CASE_PROJECT_CONF" >"$CASE_DIR/.claude/guild.conf"
+    cp "$FIXTURE_PROJECT/emoji.md" "$CASE_DIR/emoji.md"
+    CLAUDE_PROJECT_DIR=$CASE_DIR
+  fi
+  apply_case_lines set "$CASE_ENV" && apply_case_lines unset "$CASE_UNSET"
+}
+
+case_scratch_dir() {
+  CASE_DIR="$SCRATCH/shared$CASE_SEQUENCE-$1"
+  mkdir -p "$CASE_DIR/.claude"
+}
+
+# MODE LINES: applies each newline-terminated NAME=value (MODE set) or NAME (MODE unset).
+apply_case_lines() {
+  case_lines_rest=$2
+  while [ -n "$case_lines_rest" ]; do
+    apply_case_line "$1" "${case_lines_rest%%"$NL"*}" || return 1
+    case_lines_rest=${case_lines_rest#*"$NL"}
+  done
+}
+
+apply_case_line() {
+  case_variable=${2%%=*}
+  case "$case_variable" in
+    '' | [!A-Za-z_]* | *[!A-Za-z0-9_]*) printf 'bad variable name [%s]' "$case_variable"; return 1 ;;
+  esac
+  if [ "$1" = unset ]; then
+    unset "$case_variable"
+    return 0
+  fi
+  case "$2" in *=*) ;; *) printf 'env= needs NAME=value, got [%s]' "$2"; return 1 ;; esac
+  export "$case_variable=${2#*=}"
+}
+
+check_expectations() {
+  case_expect_rest=$CASE_EXPECT
+  while [ -n "$case_expect_rest" ]; do
+    case_expect_item=${case_expect_rest%%"$NL"*}
+    case_expect_rest=${case_expect_rest#*"$NL"}
+    expand_placeholders "${case_expect_item#*=}"
+    check_expectation "${case_expect_item%%=*}" "$EXPANDED" || return 1
+  done
+}
+
+# KIND WANT: one expectation against the last run; prints the miss and returns 1.
+check_expectation() {
+  case "$1" in
+    'exit') [ "$RUN_EXIT" = "$2" ] && return 0 ;;
+    'stderr') contains "$RUN_STDERR" "$2" && return 0 ;;
+    'stderr-equals') [ "$RUN_STDERR" = "$2" ] && return 0 ;;
+    'stdout') contains "$RUN_STDOUT" "$2" && return 0 ;;
+    'stdout-lacks') contains "$RUN_STDOUT" "$2" || return 0 ;;
+    'stdout-equals') [ "$RUN_STDOUT" = "$2" ] && return 0 ;;
+    'stdout-under') [ "$(($(printf '%s\n' "$RUN_STDOUT" | wc -c)))" -lt "$2" ] && return 0 ;;
+  esac
+  printf '%s [%s] not met; exit %s; stdout: %s; stderr: %s' "$1" "$2" "$RUN_EXIT" \
+    "$(printf '%s\n' "$RUN_STDOUT" | head -n 3)" "$RUN_STDERR"
+  return 1
+}
+
+# Sets EXPANDED to VALUE with the case-file placeholders replaced.
+expand_placeholders() {
+  replace_all "$1" '%NL%' "$NL"
+  replace_all "$REPLACED" '%FIXTURES%' "$FIXTURES"
+  replace_all "$REPLACED" '%PROJECT%' "${CLAUDE_PROJECT_DIR:-}"
+  replace_all "$REPLACED" '%ROOT%' "$REPO_ROOT"
+  EXPANDED=$REPLACED
+}
+
+# TEXT FROM TO: sets REPLACED to TEXT with every literal FROM replaced by TO.
+replace_all() {
+  REPLACED=''
+  replace_rest=$1
+  while [ -n "$2" ] && contains "$replace_rest" "$2"; do
+    REPLACED="$REPLACED${replace_rest%%"$2"*}$3"
+    replace_rest=${replace_rest#*"$2"}
+  done
+  REPLACED="$REPLACED$replace_rest"
 }
 
 # ---------------------------------------------------------------- environment
@@ -163,10 +318,6 @@ json_escape_backslashes() {
 }
 
 # ---------------------------------------------------------------- payload builders
-
-bash_payload() {
-  printf '{"session_id":"s","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"%s","description":"d"}}' "$1"
-}
 
 file_payload() {
   printf '{"session_id":"s","hook_event_name":"PostToolUse","tool_name":"Write","tool_input":{"file_path":"%s","content":"x"},"tool_response":{"filePath":"%s"}}' "$1" "$1"
@@ -216,10 +367,6 @@ count_on_switches() {
   printf '%s\n' "$GUILD_SWITCHES" | grep -c '=on$'
 }
 
-NL='
-'
-TAB=$(printf '\t')
-
 # ---------------------------------------------------------------- payload library
 
 describe 'payload_field: escaped quote'
@@ -254,136 +401,23 @@ describe 'payload_bool: false'
 expect_equal 'false' "$(bool_of '{"stop_hook_active":false}' stop_hook_active)"
 describe 'payload_first_line: skips blank lines and trims'
 expect_equal 'verified: ok' "$(first_line_of "${NL}   ${NL}  verified: ok  ${NL}next")"
+# ---------------------------------------------------------------- shared cases
 
-# ---------------------------------------------------------------- git-guard
+for case_file in "$TESTS_DIR"/cases/*.cases; do
+  [ -f "$case_file" ] || continue
+  run_case_file "$case_file"
+done
 
-ATTRIBUTION_BLOCK='BLOCKED: AI attribution in a git artifact is forbidden. Remove the trailer/footer and retry.'
-NO_VERIFY_BLOCK='BLOCKED: hook bypass (--no-verify) is forbidden. Fix the failing hook instead.'
-FORCE_PUSH_BLOCK='BLOCKED: forced push is forbidden. Use --force-with-lease only inside the PR update sequence.'
-
-# WANT: the last hook run printed exactly WANT on stderr.
-expect_stderr_line() {
-  expect_equal "$1" "$RUN_STDERR"
-}
-
-describe 'git-guard: inactive by default, attribution allowed'
-expect_exit git-guard.sh 0 "$(bash_payload 'git commit -m \"fix: x\n\nCo-Authored-By: Someone <a@b.c>\"')"
-describe 'git-guard: inactive by default, --no-verify allowed'
-expect_exit git-guard.sh 0 "$(bash_payload 'git commit --no-verify -m \"fix: x\"')"
-describe 'git-guard: inactive by default, forced push allowed'
-expect_exit git-guard.sh 0 "$(bash_payload 'git push --force origin main')"
-describe 'git-guard: switch off in project conf allows'
-use_project_conf 'git.handling = off'
-expect_exit git-guard.sh 0 "$(bash_payload 'git push -f')"
-reset_env
-
-use_project_conf 'git.handling = on'
-describe 'git-guard: plain commit allowed'
-expect_exit git-guard.sh 0 "$(bash_payload 'git commit -m \"fix: handle empty input\"')"
-describe 'git-guard: commit with Co-Authored-By blocked'
-expect_exit git-guard.sh 2 "$(bash_payload 'git commit -m \"fix: x\n\nCo-Authored-By: Someone <a@b.c>\"')" 'BLOCKED: AI attribution'
-describe 'git-guard: attribution block is one line'
-expect_stderr_line "$ATTRIBUTION_BLOCK"
-describe 'git-guard: gh pr create with Generated with blocked'
-expect_exit git-guard.sh 2 "$(bash_payload 'gh pr create --title t --body \"Generated with a tool\"')" "$ATTRIBUTION_BLOCK"
-describe 'git-guard: echo with Claude Code allowed'
-expect_exit git-guard.sh 0 "$(bash_payload 'echo \"Claude Code\"')"
-describe 'git-guard: gh pr edit with Anthropic blocked'
-expect_exit git-guard.sh 2 "$(bash_payload 'gh pr edit 4 --body \"thanks Anthropic\"')" "$ATTRIBUTION_BLOCK"
-describe 'git-guard: attribution match is case-insensitive'
-expect_exit git-guard.sh 2 "$(bash_payload 'GIT COMMIT -m \"co-authored-by: x\"')" "$ATTRIBUTION_BLOCK"
-describe 'git-guard: command split across lines still counts'
-expect_exit git-guard.sh 2 "$(bash_payload 'git\ncommit -m \"x noreply@anthropic.com\"')" "$ATTRIBUTION_BLOCK"
-describe 'git-guard: malformed payload allowed'
-expect_exit git-guard.sh 0 'not json {"command":'
-describe 'git-guard: empty payload allowed'
-expect_exit git-guard.sh 0 ''
-
-describe 'git-guard: commit --no-verify blocked'
-expect_exit git-guard.sh 2 "$(bash_payload 'git commit --no-verify -m \"fix: x\"')" 'BLOCKED: hook bypass'
-describe 'git-guard: hook bypass block is one line'
-expect_stderr_line "$NO_VERIFY_BLOCK"
-describe 'git-guard: commit -n blocked'
-expect_exit git-guard.sh 2 "$(bash_payload 'git commit -m \"fix: x\" -n')" "$NO_VERIFY_BLOCK"
-describe 'git-guard: push --no-verify blocked'
-expect_exit git-guard.sh 2 "$(bash_payload 'git push --no-verify origin feature')" "$NO_VERIFY_BLOCK"
-describe 'git-guard: hook bypass inside a compound command blocked'
-expect_exit git-guard.sh 2 "$(bash_payload 'git add -A && git commit -n -m \"x\" && git log -1')" "$NO_VERIFY_BLOCK"
-describe 'git-guard: --no-verify match is case-insensitive'
-expect_exit git-guard.sh 2 "$(bash_payload 'GIT COMMIT --NO-VERIFY -m x')" "$NO_VERIFY_BLOCK"
-describe 'git-guard: -n inside a double-quoted message allowed'
-expect_exit git-guard.sh 0 "$(bash_payload 'git commit -m \"keep -n out of it\"')"
-describe 'git-guard: -n inside a single-quoted message allowed'
-expect_exit git-guard.sh 0 "$(bash_payload "git commit -m 'keep -n out of it'")"
-describe 'git-guard: escaped quote inside a message keeps the quoted span'
-expect_exit git-guard.sh 0 "$(bash_payload 'git commit -m \"say \\\"hi\\\" -n\"')"
-describe 'git-guard: --no-verify named in a commit message allowed'
-expect_exit git-guard.sh 0 "$(bash_payload 'git commit -m \"docs: forbid --no-verify\"')"
-describe 'git-guard: -n as part of a longer token allowed'
-expect_exit git-guard.sh 0 "$(bash_payload 'git commit -m x --no-edit -nope')"
-describe 'git-guard: -n of another command in the compound allowed'
-expect_exit git-guard.sh 0 "$(bash_payload 'git commit -m \"x\" && git log -n 1')"
-describe 'git-guard: push -n (dry run) allowed'
-expect_exit git-guard.sh 0 "$(bash_payload 'git push -n origin feature')"
-
-describe 'git-guard: push --force blocked'
-expect_exit git-guard.sh 2 "$(bash_payload 'git push --force origin feature')" 'BLOCKED: forced push'
-describe 'git-guard: forced push block is one line'
-expect_stderr_line "$FORCE_PUSH_BLOCK"
-describe 'git-guard: push -f blocked'
-expect_exit git-guard.sh 2 "$(bash_payload 'git push origin feature -f')" "$FORCE_PUSH_BLOCK"
-describe 'git-guard: forced push inside a compound command blocked'
-expect_exit git-guard.sh 2 "$(bash_payload 'git fetch origin && git push --force origin feature; git status')" "$FORCE_PUSH_BLOCK"
-describe 'git-guard: forced push in a subshell blocked'
-expect_exit git-guard.sh 2 "$(bash_payload '(git push -f)')" "$FORCE_PUSH_BLOCK"
-describe 'git-guard: push --force-with-lease allowed'
-expect_exit git-guard.sh 0 "$(bash_payload 'git push --force-with-lease origin feature')"
-describe 'git-guard: push --force-with-lease with a ref allowed'
-expect_exit git-guard.sh 0 "$(bash_payload 'git push --force-with-lease=feature:abc123 origin feature')"
-describe 'git-guard: push --force-if-includes allowed'
-expect_exit git-guard.sh 0 "$(bash_payload 'git push --force-with-lease --force-if-includes origin feature')"
-describe 'git-guard: -f on a non-push command allowed'
-expect_exit git-guard.sh 0 "$(bash_payload 'git checkout -f main')"
-describe 'git-guard: --force named in a commit message allowed'
-expect_exit git-guard.sh 0 "$(bash_payload 'git commit -m \"docs: never git push --force\"')"
-describe 'git-guard: plain push allowed'
-expect_exit git-guard.sh 0 "$(bash_payload 'git push -u origin feature')"
-reset_env
-
-describe 'git-guard: plugin option true turns the guard on without a conf file'
-CLAUDE_PLUGIN_OPTION_GIT_HANDLING=true
-export CLAUDE_PLUGIN_OPTION_GIT_HANDLING
-expect_exit git-guard.sh 2 "$(bash_payload 'git commit --no-verify -m x')" "$NO_VERIFY_BLOCK"
-reset_env
-describe 'git-guard: plugin option false overrides git.handling on in the project conf'
-use_project_conf 'git.handling = on'
-CLAUDE_PLUGIN_OPTION_GIT_HANDLING=false
-export CLAUDE_PLUGIN_OPTION_GIT_HANDLING
-expect_exit git-guard.sh 0 "$(bash_payload 'git push --force origin feature')"
-reset_env
+describe 'shared cases: every PowerShell twin has a case file'
+missing_case_files=$(for twin_script in "$HOOKS"/*.ps1; do
+  [ -f "$twin_script" ] || continue
+  twin_name=${twin_script##*/}
+  [ -f "$TESTS_DIR/cases/${twin_name%.ps1}.cases" ] || printf '%s\n' "$twin_name"
+done)
+expect_equal '' "$missing_case_files"
 
 # ---------------------------------------------------------------- emoji-scan
 
-describe 'emoji-scan: clean file allowed'
-expect_exit emoji-scan.sh 0 "$(file_payload "$FIXTURE_PROJECT/clean.md")"
-describe 'emoji-scan: emoji blocked at line 3'
-expect_exit emoji-scan.sh 2 "$(file_payload "$FIXTURE_PROJECT/emoji.md")" 'emoji.md at line 3 (first hit)'
-describe 'emoji-scan: png skipped'
-expect_exit emoji-scan.sh 0 "$(file_payload "$FIXTURE_PROJECT/image.png")"
-describe 'emoji-scan: file outside the project skipped'
-expect_exit emoji-scan.sh 0 "$(file_payload "$FIXTURES/outside/outside.md")"
-describe 'emoji-scan: dot-dot path leaving the project skipped'
-expect_exit emoji-scan.sh 0 "$(file_payload "$FIXTURE_PROJECT/../outside/outside.md")"
-describe 'emoji-scan: missing file skipped'
-expect_exit emoji-scan.sh 0 "$(file_payload "$FIXTURE_PROJECT/missing.md")"
-describe 'emoji-scan: empty path skipped'
-expect_exit emoji-scan.sh 0 "$(file_payload '')"
-describe 'emoji-scan: payload without file_path skipped'
-expect_exit emoji-scan.sh 0 '{"tool_input":{"content":"x"}}'
-describe 'emoji-scan: no project dir scans anywhere'
-unset CLAUDE_PROJECT_DIR
-expect_exit emoji-scan.sh 2 "$(file_payload "$FIXTURES/outside/outside.md")" 'line 3'
-reset_env
 describe 'emoji-scan: project prefix needs a path boundary'
 new_scratch_dir
 mkdir -p "$SCRATCH_DIR/proj" "$SCRATCH_DIR/project"
@@ -423,14 +457,6 @@ CLAUDE_PROJECT_DIR=$SCRATCH_DIR
 expect_exit emoji-scan.sh 0 "$(file_payload "$SCRATCH_DIR/IMAGE.PNG")"
 reset_env
 
-describe 'emoji-scan: switch off in user conf allows the emoji file'
-use_user_conf 'hooks.emoji_scan = off'
-expect_exit emoji-scan.sh 0 "$(file_payload "$FIXTURE_PROJECT/emoji.md")"
-describe 'emoji-scan: project conf turns the user-disabled scan back on'
-use_project_conf 'hooks.emoji_scan = on'
-expect_exit emoji-scan.sh 2 "$(file_payload "$CLAUDE_PROJECT_DIR/emoji.md")" 'line 3'
-reset_env
-
 if [ -n "$WINDOWS_ROOT_BACKSLASH" ]; then
   describe 'emoji-scan: Windows backslash paths (Git Bash only)'
   CLAUDE_PROJECT_DIR="$WINDOWS_ROOT_BACKSLASH\\tests\\fixtures\\project"
@@ -443,36 +469,6 @@ if [ -n "$WINDOWS_ROOT_BACKSLASH" ]; then
 fi
 
 # ---------------------------------------------------------------- receipt-check
-
-describe 'receipt-check: non-guild agent allowed'
-expect_exit receipt-check.sh 0 "$(receipt_payload general-purpose 'I looked around and here is prose.')"
-describe 'receipt-check: verified: allowed'
-expect_exit receipt-check.sh 0 "$(receipt_payload guild:builder 'verified: build OK\nsrc/a.ts:1-9 change')"
-describe 'receipt-check: path:line row allowed'
-expect_exit receipt-check.sh 0 "$(receipt_payload guild:investigator 'src/app/main.ts:12 defines run')"
-describe 'receipt-check: No issues. allowed'
-expect_exit receipt-check.sh 0 "$(receipt_payload guild:reviewer 'No issues.')"
-describe 'receipt-check: N findings. allowed'
-expect_exit receipt-check.sh 0 "$(receipt_payload guild:reviewer '3 findings.\n1. x')"
-describe 'receipt-check: token match is case-insensitive'
-expect_exit receipt-check.sh 0 "$(receipt_payload guild:builder 'VERIFIED: ok')"
-describe 'receipt-check: prose blocked with excerpt'
-expect_exit receipt-check.sh 2 "$(receipt_payload guild:builder 'I finished the work.\nverified: ok')" 'Got: "I finished the work.". Rewrite'
-describe 'receipt-check: agent type match is case-insensitive'
-expect_exit receipt-check.sh 2 "$(receipt_payload GUILD:Builder 'Done, all good.')" 'Receipt contract'
-describe 'receipt-check: stop_hook_active true allowed'
-expect_exit receipt-check.sh 0 '{"agent_type":"guild:builder","stop_hook_active":true,"last_assistant_message":"prose"}'
-describe 'receipt-check: escaped newlines resolved before the first line'
-expect_exit receipt-check.sh 0 "$(receipt_payload guild:builder '\n\n  \r\n  plan: 3 files\nmore')"
-describe 'receipt-check: message absent allowed'
-expect_exit receipt-check.sh 0 '{"agent_type":"guild:builder","stop_hook_active":false}'
-describe 'receipt-check: blank message allowed'
-expect_exit receipt-check.sh 0 "$(receipt_payload guild:builder '\n   \n')"
-describe 'receipt-check: malformed payload allowed'
-expect_exit receipt-check.sh 0 '{"agent_type":"guild:builder","last_assistant_message":"unterminated'
-describe 'receipt-check: excerpt capped at 80 characters'
-long_line='aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
-expect_exit receipt-check.sh 2 "$(receipt_payload guild:builder "$long_line")" "Got: \"$(printf '%s' "$long_line" | cut -c 1-80)\"."
 
 large_message='plan: 2 files\n'
 large_round=0
@@ -491,11 +487,6 @@ export GUILD_HOOK_TRACE
 run_hook receipt-check.sh "$(receipt_payload guild:builder 'verified: ok')"
 trace_text=$(cat "$GUILD_HOOK_TRACE" 2>/dev/null)
 if contains "$trace_text" 'SubagentStop' && contains "$trace_text" '"agent_type":"guild:builder"'; then pass; else fail "trace: $trace_text"; fi
-reset_env
-
-describe 'receipt-check: switch off allows'
-use_user_conf 'hooks.receipt_check = off'
-expect_exit receipt-check.sh 0 "$(receipt_payload guild:builder 'prose')"
 reset_env
 
 # ---------------------------------------------------------------- config
@@ -613,112 +604,12 @@ reset_env
 
 # ---------------------------------------------------------------- session-context
 
-describe 'session-context: always-on has Reply style by default'
-expect_stdout_contains '## Reply style' session-context.sh context/always-on.md
-describe 'session-context: always-on carries the length budget'
-expect_stdout_contains '- Length budget: a status update is at most six lines.' session-context.sh context/always-on.md
-describe 'session-context: shipped defaults print no switches-changed section'
-expect_stdout_lacks '## Guild switches changed' session-context.sh context/always-on.md
-describe 'session-context: git.handling on prints git.handling=on'
-use_user_conf 'git.handling = on'
-expect_stdout_contains "## Guild switches changed${NL}${NL}git.handling=on" session-context.sh context/always-on.md
-reset_env
-describe 'session-context: review.security off prints review.security=off'
-use_project_conf 'review.security = off'
-expect_stdout_contains "## Guild switches changed${NL}${NL}review.security=off" session-context.sh context/always-on.md
-reset_env
-describe 'session-context: switch set to its default prints no switches-changed section'
-use_user_conf 'git.handling = off'
-expect_stdout_lacks '## Guild switches changed' session-context.sh context/always-on.md
-reset_env
-describe 'session-context: always-on default has no marker lines'
-expect_stdout_lacks '{{' session-context.sh context/always-on.md
-describe 'session-context: style.terse off drops Reply style'
-use_user_conf 'style.terse = off'
-expect_stdout_lacks '## Reply style' session-context.sh context/always-on.md
-describe 'session-context: style.terse off keeps Delegation'
-expect_stdout_contains '## Delegation' session-context.sh context/always-on.md
-describe 'session-context: switches-changed section lists the off key'
-expect_stdout_contains "## Guild switches changed${NL}${NL}style.terse=off" session-context.sh context/always-on.md
-reset_env
-describe 'session-context: rules.universal off drops Universal code rules'
-use_user_conf 'rules.universal = off'
-expect_stdout_lacks '## Universal code rules' session-context.sh context/always-on.md
-reset_env
-describe 'session-context: switches-changed entries are comma separated'
-use_user_conf "style.terse = off
-review.security = off"
-expect_stdout_contains 'review.security=off, style.terse=off' session-context.sh context/always-on.md
-reset_env
-describe 'session-context: switches-changed section only on the always-on part'
-use_user_conf 'review.security = off'
-expect_stdout_lacks '## Guild switches changed' session-context.sh context/procedure.md
-reset_env
-
-describe 'session-context: procedure has no marker lines'
-expect_stdout_lacks '{{' session-context.sh context/procedure.md
-describe 'session-context: PLUGIN_ROOT replaced with a forward-slash path'
-expect_stdout_contains "$REPO_ROOT/skills/guild/DAG.md" session-context.sh context/procedure.md
-describe 'session-context: no PLUGIN_ROOT placeholder survives'
-expect_stdout_lacks '{{PLUGIN_ROOT}}' session-context.sh context/procedure.md
-describe 'session-context: procedure has Step 3a by default'
-expect_stdout_contains '### Step 3a: Design gate' session-context.sh context/procedure.md
-describe 'session-context: rendered procedure under 9000 bytes'
-expect_stdout_under 9000 session-context.sh context/procedure.md
-describe 'session-context: procedure empty when procedure.default_mode off'
-use_user_conf 'procedure.default_mode = off'
-expect_stdout_empty session-context.sh context/procedure.md
-describe 'session-context: always-on still printed when procedure.default_mode off'
-expect_stdout_contains 'procedure.default_mode' session-context.sh context/always-on.md
-reset_env
-describe 'session-context: Step 3a absent when procedure.design_gate off'
-use_user_conf 'procedure.design_gate = off'
-expect_stdout_lacks '### Step 3a' session-context.sh context/procedure.md
-describe 'session-context: Step 4 still follows when Step 3a is dropped'
-expect_stdout_contains "all in one message.${NL}${NL}### Step 4" session-context.sh context/procedure.md
-reset_env
-describe 'session-context: site-map rule sits between the architect route and its prompt contents'
-expect_stdout_contains "\`guild:architect\`.${NL}  NEVER dispatch without an investigator site map." session-context.sh context/procedure.md
-describe 'session-context: investigate_first off drops the site-map rule'
-use_user_conf 'procedure.investigate_first = off'
-expect_stdout_lacks 'NEVER dispatch without an investigator site map' session-context.sh context/procedure.md
-describe 'session-context: investigate_first off keeps the architect prompt contents'
-expect_stdout_contains "\`guild:architect\`.${NL}  Prompt gets: task spec" session-context.sh context/procedure.md
-reset_env
-describe 'session-context: sharding off drops the shard rule'
-use_user_conf 'procedure.sharding = off'
-expect_stdout_lacks 'shard into parallel slices' session-context.sh context/procedure.md
-reset_env
-describe 'session-context: review switches off keep the verdict paragraph'
-use_user_conf "review.norms = off
-review.correctness = off
-review.security = off"
-expect_stdout_contains 'Verdicts:' session-context.sh context/procedure.md
-describe 'session-context: review switches off drop the three dimensions'
-expect_stdout_lacks '**Norms/structure**' session-context.sh context/procedure.md
-reset_env
-describe 'session-context: cleanup_pass off drops the cleanup section and route'
-use_user_conf 'procedure.cleanup_pass = off'
-expect_stdout_lacks 'Cleanup pass' session-context.sh context/procedure.md
-describe 'session-context: cleanup_pass off keeps docs sync'
-expect_stdout_contains 'Then DAG.md `## Docs sync`.' session-context.sh context/procedure.md
-reset_env
-describe 'session-context: docs.sync off drops the docs sync line'
-use_user_conf 'docs.sync = off'
-expect_stdout_lacks '## Docs sync' session-context.sh context/procedure.md
-reset_env
 describe 'session-context: every switch off leaves no marker lines'
 use_user_conf "$(sed -n 's/= on$/= off/p' "$REPO_ROOT/config/defaults.conf")"
 expect_stdout_lacks '{{' session-context.sh context/always-on.md
 describe 'session-context: every switch off except default_mode leaves no marker lines in the procedure'
 use_user_conf "$(sed -n -e '/procedure.default_mode/d' -e 's/= on$/= off/p' "$REPO_ROOT/config/defaults.conf")"
 expect_stdout_lacks '{{' session-context.sh context/procedure.md
-reset_env
-describe 'session-context: missing part prints nothing'
-expect_stdout_empty session-context.sh context/missing.md
-describe 'session-context: unset CLAUDE_PLUGIN_ROOT derives the root'
-unset CLAUDE_PLUGIN_ROOT
-expect_stdout_contains '/skills/guild/DAG.md' session-context.sh context/procedure.md
 reset_env
 if [ -n "$WINDOWS_ROOT_BACKSLASH" ]; then
   describe 'session-context: backslash plugin root rendered with forward slashes (Git Bash only)'
@@ -727,27 +618,6 @@ if [ -n "$WINDOWS_ROOT_BACKSLASH" ]; then
   reset_env
 fi
 
-GUILD_COMMIT_SENTENCE='Commits only on request, by the main thread, through the guild `git` skill.'
-PROJECT_COMMIT_SENTENCE="Commits only on request, by the main thread, through the project's git skill named under \`## Git\`."
-describe 'session-context: Step 6 routes commits through the project git skill by default'
-expect_stdout_contains "Paraphrase receipts.${NL}${PROJECT_COMMIT_SENTENCE}${NL}QA surfaces" session-context.sh context/procedure.md
-describe 'session-context: Step 6 default lacks the guild git skill wording'
-expect_stdout_lacks "$GUILD_COMMIT_SENTENCE" session-context.sh context/procedure.md
-use_project_conf 'git.handling = on'
-describe 'session-context: Step 6 routes commits through the guild git skill when git.handling is on'
-expect_stdout_contains "Paraphrase receipts.${NL}${GUILD_COMMIT_SENTENCE}${NL}QA surfaces" session-context.sh context/procedure.md
-describe 'session-context: Step 6 with git.handling on lacks the project git skill wording'
-expect_stdout_lacks "$PROJECT_COMMIT_SENTENCE" session-context.sh context/procedure.md
-describe 'session-context: git.handling on leaves no marker lines in the procedure'
-expect_stdout_lacks '{{' session-context.sh context/procedure.md
-describe 'session-context: rendered procedure with git.handling on under 9000 bytes'
-expect_stdout_under 9000 session-context.sh context/procedure.md
-reset_env
-describe 'session-context: plugin option true picks the guild git skill wording'
-CLAUDE_PLUGIN_OPTION_GIT_HANDLING=true
-export CLAUDE_PLUGIN_OPTION_GIT_HANDLING
-expect_stdout_contains "$GUILD_COMMIT_SENTENCE" session-context.sh context/procedure.md
-reset_env
 describe 'session-context: every switch on leaves no marker lines in the procedure'
 use_user_conf "$(sed -n 's/= off$/= on/p' "$REPO_ROOT/config/defaults.conf")"
 expect_stdout_lacks '{{' session-context.sh context/procedure.md
@@ -772,15 +642,7 @@ run_context session-context.sh context/markers.md
 expect_equal "head${NL}negated${NL}tail" "$RUN_STDOUT"
 reset_env
 
-# ---------------------------------------------------------------- prompt-reinforce, size check
-
-describe 'prompt-reinforce: prints exactly the reinforcement line'
-run_context prompt-reinforce.sh
-expect_equal 'GUILD DEFAULT MODE: replies at most six lines, universal code rules, coding requests walk the operating procedure in session context (no slash command).' "$RUN_STDOUT"
-describe 'prompt-reinforce: switch off prints nothing'
-use_user_conf 'hooks.prompt_reinforce = off'
-expect_stdout_empty prompt-reinforce.sh
-reset_env
+# ---------------------------------------------------------------- size check
 
 describe 'check-context-size: every part under the limit'
 expect_exit check-context-size.sh 0 ''
@@ -792,17 +654,35 @@ hooks_json_scripts() {
   sed -n 's|.*/hooks/\([A-Za-z0-9_-]*\.sh\).*|\1|p' "$HOOKS/hooks.json"
 }
 
+# Prints every hooks/<name>.ps1 that a hooks.json command names, one per line.
+hooks_json_twins() {
+  sed -n 's|.*/hooks/\([A-Za-z0-9_-]*\.ps1\).*|\1|p' "$HOOKS/hooks.json"
+}
+
+# Counts the commands of the exact two-line polyglot shape: line 1 execs the sh script (so sh
+# never reads line 2), line 2 calls the .ps1 twin with the same arguments (PowerShell, where
+# exec is not a command, runs it and exits with its status).
+count_polyglot_commands() {
+  grep -c '"command": "exec sh \\"${CLAUDE_PLUGIN_ROOT}/hooks/\([A-Za-z0-9_-]*\)\.sh\\"\([^"\\]*\)\\n& \\"${CLAUDE_PLUGIN_ROOT}/hooks/\1\.ps1\\"\2; exit \$LASTEXITCODE",*$' "$HOOKS/hooks.json"
+}
+
+# SCRIPT...: prints every name with no file under hooks/.
+missing_hook_files() {
+  while IFS= read -r wired_script; do
+    [ -f "$HOOKS/$wired_script" ] || printf '%s\n' "$wired_script"
+  done
+}
+
 describe 'hooks.json: every command runs an existing sh script'
-missing_scripts=$(hooks_json_scripts | while IFS= read -r wired_script; do
-  [ -f "$HOOKS/$wired_script" ] || printf '%s\n' "$wired_script"
-done)
-expect_equal '' "$missing_scripts"
+expect_equal '' "$(hooks_json_scripts | missing_hook_files)"
 describe 'hooks.json: six script references found'
 expect_equal '6' "$(($(hooks_json_scripts | wc -l)))"
-describe 'hooks.json: six commands, all through sh'
-expect_equal '6 6' "$(grep -c '"command":' "$HOOKS/hooks.json") $(grep -c '"command": "sh \\"' "$HOOKS/hooks.json")"
-describe 'hooks.json: no PowerShell left'
-expect_equal '0' "$(grep -c -i -E 'pwsh|\.ps1' "$HOOKS/hooks.json")"
+describe 'hooks.json: every command names an existing PowerShell twin'
+expect_equal '' "$(hooks_json_twins | missing_hook_files)"
+describe 'hooks.json: six commands, all the sh/PowerShell polyglot'
+expect_equal '6 6' "$(grep -c '"command":' "$HOOKS/hooks.json") $(count_polyglot_commands)"
+describe 'hooks.json: no shell field'
+expect_equal '0' "$(grep -c '"shell"' "$HOOKS/hooks.json")"
 
 # ---------------------------------------------------------------- summary
 

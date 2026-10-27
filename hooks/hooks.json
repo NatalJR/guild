@@ -5,13 +5,13 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/session-context.sh\" context/always-on.md",
+            "command": "exec sh \"${CLAUDE_PLUGIN_ROOT}/hooks/session-context.sh\" context/always-on.md\n& \"${CLAUDE_PLUGIN_ROOT}/hooks/session-context.ps1\" context/always-on.md; exit $LASTEXITCODE",
             "timeout": 5,
             "statusMessage": "Loading guild context..."
           },
           {
             "type": "command",
-            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/session-context.sh\" context/procedure.md",
+            "command": "exec sh \"${CLAUDE_PLUGIN_ROOT}/hooks/session-context.sh\" context/procedure.md\n& \"${CLAUDE_PLUGIN_ROOT}/hooks/session-context.ps1\" context/procedure.md; exit $LASTEXITCODE",
             "timeout": 5,
             "statusMessage": "Loading guild procedure..."
           }
@@ -23,7 +23,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/prompt-reinforce.sh\"",
+            "command": "exec sh \"${CLAUDE_PLUGIN_ROOT}/hooks/prompt-reinforce.sh\"\n& \"${CLAUDE_PLUGIN_ROOT}/hooks/prompt-reinforce.ps1\"; exit $LASTEXITCODE",
             "timeout": 5
           }
         ]
@@ -35,7 +35,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/git-guard.sh\"",
+            "command": "exec sh \"${CLAUDE_PLUGIN_ROOT}/hooks/git-guard.sh\"\n& \"${CLAUDE_PLUGIN_ROOT}/hooks/git-guard.ps1\"; exit $LASTEXITCODE",
             "timeout": 5
           }
         ]
@@ -47,7 +47,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/emoji-scan.sh\"",
+            "command": "exec sh \"${CLAUDE_PLUGIN_ROOT}/hooks/emoji-scan.sh\"\n& \"${CLAUDE_PLUGIN_ROOT}/hooks/emoji-scan.ps1\"; exit $LASTEXITCODE",
             "timeout": 10
           }
         ]
@@ -58,7 +58,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/receipt-check.sh\"",
+            "command": "exec sh \"${CLAUDE_PLUGIN_ROOT}/hooks/receipt-check.sh\"\n& \"${CLAUDE_PLUGIN_ROOT}/hooks/receipt-check.ps1\"; exit $LASTEXITCODE",
             "timeout": 5
           }
         ]
