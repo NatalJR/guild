@@ -1,21 +1,19 @@
-# SessionStart hook: prints the guild always-on context and the default operating procedure;
-# the harness injects stdout as context. `{{PLUGIN_ROOT}}` in the procedure becomes the
-# absolute plugin path so the main thread can Read DAG.md and the charter template.
-# Missing files or any internal error print nothing and exit 0 (never blocks a session).
+# SessionStart hook: prints one guild context file; the harness injects stdout as context.
+# One hook entry per file, because the harness caps a single hook's stdout near 10KB and
+# replaces anything larger with a 2KB preview. `{{PLUGIN_ROOT}}` becomes the absolute plugin
+# path so the main thread can Read DAG.md and the charter template.
+# Missing file or any internal error prints nothing and exits 0 (never blocks a session).
+param([string]$Part = 'context/always-on.md')
 try {
     $pluginRoot = $env:CLAUDE_PLUGIN_ROOT
     if ([string]::IsNullOrWhiteSpace($pluginRoot)) {
         $pluginRoot = Split-Path -Parent $PSScriptRoot
     }
     $pluginRootForward = $pluginRoot.Replace([char]92, '/')
-    $parts = @('context/always-on.md', 'context/procedure.md')
-    foreach ($part in $parts) {
-        $path = Join-Path $pluginRoot $part
-        if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { continue }
+    $path = Join-Path $pluginRoot $Part
+    if (Test-Path -LiteralPath $path -PathType Leaf) {
         $text = [System.IO.File]::ReadAllText($path, [System.Text.Encoding]::UTF8)
-        $text = $text.Replace('{{PLUGIN_ROOT}}', $pluginRootForward)
-        [Console]::Out.Write($text)
-        [Console]::Out.Write("`n")
+        [Console]::Out.Write($text.Replace('{{PLUGIN_ROOT}}', $pluginRootForward))
     }
 } catch {
     # Swallowed on purpose: a context hook must never crash the session.

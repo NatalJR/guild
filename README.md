@@ -86,7 +86,7 @@ Update with `/plugin update guild`.
 
 | Event | What it does | Exit behaviour |
 |---|---|---|
-| SessionStart | Injects `context/always-on.md` + `context/procedure.md` as hidden context, with the plugin root substituted | Exit 0; never blocks |
+| SessionStart | Two entries, one per file: injects `context/always-on.md` and `context/procedure.md` as hidden context with the plugin root substituted. One file per hook because the harness caps a hook's stdout near 10KB; `hooks/check-context-size.ps1` enforces a 9000-byte ceiling per file | Exit 0; never blocks |
 | UserPromptSubmit | Per-prompt reinforcement of the core rules | Exit 0; never blocks |
 | PreToolUse (git commit, PR creation) | Denies AI attribution in commit messages and PR text | Blocks on a match; allows otherwise |
 | PostToolUse (file edits) | Scans the edited file for emoji characters | Reports a violation to the agent on a match; exit 0 otherwise |

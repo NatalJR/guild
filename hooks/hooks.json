@@ -5,9 +5,15 @@
         "hooks": [
           {
             "type": "command",
-            "command": "pwsh -NoProfile -File \"${CLAUDE_PLUGIN_ROOT}/hooks/session-context.ps1\"",
+            "command": "pwsh -NoProfile -File \"${CLAUDE_PLUGIN_ROOT}/hooks/session-context.ps1\" -Part context/always-on.md",
             "timeout": 5,
             "statusMessage": "Loading guild context..."
+          },
+          {
+            "type": "command",
+            "command": "pwsh -NoProfile -File \"${CLAUDE_PLUGIN_ROOT}/hooks/session-context.ps1\" -Part context/procedure.md",
+            "timeout": 5,
+            "statusMessage": "Loading guild procedure..."
           }
         ]
       }
