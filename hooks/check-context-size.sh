@@ -1,9 +1,9 @@
 #!/bin/sh
 # Maintenance check, not a hook: every context part the SessionStart hooks inject must stay
 # under the harness cap (a hook's stdout near 10KB is replaced by a 2KB preview). Each
-# context/*.md is rendered through session-context.sh with every switch on (user and project
-# overrides cleared) and the output measured. Run after editing anything under context/ or
-# config/. Exit 1 on a violation.
+# context/*.md is rendered through session-context.sh with the shipped defaults (user, project
+# and plugin option overrides cleared) and the output measured. Run after editing anything
+# under context/ or config/. Exit 1 on a violation.
 set -u
 
 LIMIT=9000
@@ -16,7 +16,7 @@ plugin_root=$(CDPATH='' cd -- "$hooks_dir/.." && pwd) || exit 1
 
 rendered_size() {
   (
-    unset HOME CLAUDE_PROJECT_DIR
+    unset HOME CLAUDE_PROJECT_DIR CLAUDE_PLUGIN_OPTION_GIT_HANDLING
     CLAUDE_PLUGIN_ROOT=$plugin_root
     export CLAUDE_PLUGIN_ROOT
     sh "$plugin_root/hooks/session-context.sh" "context/$1"

@@ -4,8 +4,9 @@
 # One hook entry per file, because the harness caps a single hook's stdout near 10KB and
 # replaces anything larger with a 2KB preview (hooks/check-context-size.sh keeps each part
 # under 9000 bytes).
-# Rendering: a line `{{#if KEY}}` opens a block and a line `{{/if}}` closes it (no nesting);
-# marker lines are always dropped and the block body is kept only while switch KEY is on.
+# Rendering: a line `{{#if KEY}}` or `{{#if !KEY}}` opens a block and a line `{{/if}}` closes
+# it (no nesting); marker lines are always dropped and the block body is kept only while switch
+# KEY is on (`!KEY`: only while it is off).
 # `{{PLUGIN_ROOT}}` becomes the plugin path with forward slashes so the main thread can Read
 # DAG.md and the charter template. The always-on part gains a `## Guild switches off` section
 # when any switch is off; the procedure part prints nothing when procedure.default_mode is off.
@@ -42,10 +43,14 @@ plugin_root() {
   fi
 }
 
+# Sets keep for a `{{#if KEY}}` or `{{#if !KEY}}` marker line.
 open_block() {
   block_key=${1#'{{#if '}
   block_key=${block_key%'}}'}
-  if guild_switch "$block_key"; then keep=yes; else keep=no; fi
+  block_wanted=on
+  case "$block_key" in '!'*) block_key=${block_key#'!'}; block_wanted=off ;; esac
+  if guild_switch "$block_key"; then block_state=on; else block_state=off; fi
+  if [ "$block_state" = "$block_wanted" ]; then keep=yes; else keep=no; fi
 }
 
 emit_line() {

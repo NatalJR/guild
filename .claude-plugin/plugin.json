@@ -7,5 +7,13 @@
     "url": "https://github.com/NatalJR"
   },
   "license": "MIT",
-  "hooks": "./hooks/hooks.json"
+  "hooks": "./hooks/hooks.json",
+  "userConfig": {
+    "git_handling": {
+      "type": "boolean",
+      "title": "Git handling",
+      "description": "Let the guild handle git: a generic git skill plus a guard hook that denies AI attribution, --no-verify and forced pushes. Off: your project's own git conventions apply.",
+      "default": false
+    }
+  }
 }

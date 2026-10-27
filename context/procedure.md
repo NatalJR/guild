@@ -93,7 +93,14 @@ Verdicts: `No issues.` from every dispatched reviewer means done. Red/yellow: fi
 
 ### Step 6: Report
 
-Short summary for the user (they don't see subagent output): what changed (paths), verify result, review verdicts, anything residual. Paraphrase receipts. Commits only on request, by the main thread, through the project's git skill named under `## Git`. QA surfaces from `## QA` go to the owner as a numbered checklist; the slice stays open until they report.
+Short summary for the user (they don't see subagent output): what changed (paths), verify result, review verdicts, anything residual. Paraphrase receipts.
+{{#if git.handling}}
+Commits only on request, by the main thread, through the guild `git` skill.
+{{/if}}
+{{#if !git.handling}}
+Commits only on request, by the main thread, through the project's git skill named under `## Git`.
+{{/if}}
+QA surfaces from `## QA` go to the owner as a numbered checklist; the slice stays open until they report.
 
 {{#if procedure.cleanup_pass}}
 ### Cleanup pass (dedicated mode)

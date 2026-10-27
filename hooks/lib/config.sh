@@ -6,6 +6,9 @@
 # Any other line (inline comments included) is ignored silently. The defaults file declares the
 # known keys; a key the defaults file does not declare is ignored in the user and project files.
 # Lines are only matched against that grammar, never expanded or executed.
+# The plugin option CLAUDE_PLUGIN_OPTION_GIT_HANDLING (install prompt or /config) is applied
+# after the three files and wins for git.handling: true|1|on|yes in any case is on, any other
+# value is off.
 # When CLAUDE_PLUGIN_ROOT is unset the root is derived from the sourcing script ($0), which
 # sits one level below the plugin root (hooks/*.sh; the test runner in tests/ likewise).
 set -u
@@ -25,6 +28,7 @@ guild_config_load() {
   _guild_config_read "${CLAUDE_PLUGIN_ROOT:-$_GUILD_SCRIPT_DIR/..}/config/defaults.conf" declare
   [ -z "${HOME:-}" ] || _guild_config_read "$HOME/.claude/guild.conf" override
   [ -z "${CLAUDE_PROJECT_DIR:-}" ] || _guild_config_read "$CLAUDE_PROJECT_DIR/.claude/guild.conf" override
+  _guild_option_apply
   return 0
 }
 
@@ -84,6 +88,15 @@ _guild_parse_state() {
     [Oo][Nn] | [Tt][Rr][Uu][Ee] | [Yy][Ee][Ss]) _guild_state=on ;;
     [Oo][Ff][Ff] | [Ff][Aa][Ll][Ss][Ee] | [Nn][Oo]) _guild_state=off ;;
     *) return 1 ;;
+  esac
+}
+
+# Maps the git handling plugin option, when set, onto git.handling.
+_guild_option_apply() {
+  [ -n "${CLAUDE_PLUGIN_OPTION_GIT_HANDLING+set}" ] || return 0
+  case "$CLAUDE_PLUGIN_OPTION_GIT_HANDLING" in
+    [Tt][Rr][Uu][Ee] | 1 | [Oo][Nn] | [Yy][Ee][Ss]) _guild_switch_store git.handling on ;;
+    *) _guild_switch_store git.handling off ;;
   esac
 }
 

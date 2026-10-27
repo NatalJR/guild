@@ -4,7 +4,8 @@
 # under dash from the same checkout (every path is derived from this script's location).
 # Fixtures under tests/fixtures/** contain emoji bytes on purpose (emoji-scan cases); the
 # repository no-emoji rule exempts that directory. Cases needing a switch override write a
-# temporary guild.conf into a scratch HOME or project directory, never into the fixtures.
+# temporary guild.conf into a scratch HOME or project directory (never into the fixtures) or
+# export CLAUDE_PLUGIN_OPTION_GIT_HANDLING; reset_env clears both.
 set -u
 
 case "$0" in
@@ -22,7 +23,7 @@ CLAUDE_PLUGIN_ROOT=$REPO_ROOT
 CLAUDE_PROJECT_DIR=$FIXTURE_PROJECT
 HOME=$FIXTURE_HOME
 export CLAUDE_PLUGIN_ROOT CLAUDE_PROJECT_DIR HOME
-unset GUILD_HOOK_TRACE
+unset GUILD_HOOK_TRACE CLAUDE_PLUGIN_OPTION_GIT_HANDLING
 
 SCRATCH=$(mktemp -d) || exit 1
 trap 'rm -rf "$SCRATCH"' EXIT
@@ -146,7 +147,7 @@ reset_env() {
   CLAUDE_PROJECT_DIR=$FIXTURE_PROJECT
   HOME=$FIXTURE_HOME
   export CLAUDE_PLUGIN_ROOT CLAUDE_PROJECT_DIR
-  unset GUILD_HOOK_TRACE
+  unset GUILD_HOOK_TRACE CLAUDE_PLUGIN_OPTION_GIT_HANDLING
 }
 
 # Windows forms of the repository root when running under Git Bash (cygpath present).
@@ -254,29 +255,111 @@ expect_equal 'false' "$(bool_of '{"stop_hook_active":false}' stop_hook_active)"
 describe 'payload_first_line: skips blank lines and trims'
 expect_equal 'verified: ok' "$(first_line_of "${NL}   ${NL}  verified: ok  ${NL}next")"
 
-# ---------------------------------------------------------------- deny-attribution
+# ---------------------------------------------------------------- git-guard
 
-describe 'deny-attribution: plain commit allowed'
-expect_exit deny-attribution.sh 0 "$(bash_payload 'git commit -m \"fix: handle empty input\"')"
-describe 'deny-attribution: commit with Co-Authored-By blocked'
-expect_exit deny-attribution.sh 2 "$(bash_payload 'git commit -m \"fix: x\n\nCo-Authored-By: Someone <a@b.c>\"')" 'BLOCKED: AI attribution in a git artifact is forbidden'
-describe 'deny-attribution: gh pr create with Generated with blocked'
-expect_exit deny-attribution.sh 2 "$(bash_payload 'gh pr create --title t --body \"Generated with a tool\"')" 'BLOCKED'
-describe 'deny-attribution: echo with Claude Code allowed'
-expect_exit deny-attribution.sh 0 "$(bash_payload 'echo \"Claude Code\"')"
-describe 'deny-attribution: gh pr edit with Anthropic blocked'
-expect_exit deny-attribution.sh 2 "$(bash_payload 'gh pr edit 4 --body \"thanks Anthropic\"')" 'BLOCKED'
-describe 'deny-attribution: case-insensitive match'
-expect_exit deny-attribution.sh 2 "$(bash_payload 'GIT COMMIT -m \"co-authored-by: x\"')" 'BLOCKED'
-describe 'deny-attribution: command split across lines still counts'
-expect_exit deny-attribution.sh 2 "$(bash_payload 'git\ncommit -m \"x noreply@anthropic.com\"')" 'BLOCKED'
-describe 'deny-attribution: malformed payload allowed'
-expect_exit deny-attribution.sh 0 'not json {"command":'
-describe 'deny-attribution: empty payload allowed'
-expect_exit deny-attribution.sh 0 ''
-describe 'deny-attribution: switch off allows'
-use_user_conf 'hooks.deny_attribution = off'
-expect_exit deny-attribution.sh 0 "$(bash_payload 'git commit -m \"Co-Authored-By: x\"')"
+ATTRIBUTION_BLOCK='BLOCKED: AI attribution in a git artifact is forbidden. Remove the trailer/footer and retry.'
+NO_VERIFY_BLOCK='BLOCKED: hook bypass (--no-verify) is forbidden. Fix the failing hook instead.'
+FORCE_PUSH_BLOCK='BLOCKED: forced push is forbidden. Use --force-with-lease only inside the PR update sequence.'
+
+# WANT: the last hook run printed exactly WANT on stderr.
+expect_stderr_line() {
+  expect_equal "$1" "$RUN_STDERR"
+}
+
+describe 'git-guard: inactive by default, attribution allowed'
+expect_exit git-guard.sh 0 "$(bash_payload 'git commit -m \"fix: x\n\nCo-Authored-By: Someone <a@b.c>\"')"
+describe 'git-guard: inactive by default, --no-verify allowed'
+expect_exit git-guard.sh 0 "$(bash_payload 'git commit --no-verify -m \"fix: x\"')"
+describe 'git-guard: inactive by default, forced push allowed'
+expect_exit git-guard.sh 0 "$(bash_payload 'git push --force origin main')"
+describe 'git-guard: switch off in project conf allows'
+use_project_conf 'git.handling = off'
+expect_exit git-guard.sh 0 "$(bash_payload 'git push -f')"
+reset_env
+
+use_project_conf 'git.handling = on'
+describe 'git-guard: plain commit allowed'
+expect_exit git-guard.sh 0 "$(bash_payload 'git commit -m \"fix: handle empty input\"')"
+describe 'git-guard: commit with Co-Authored-By blocked'
+expect_exit git-guard.sh 2 "$(bash_payload 'git commit -m \"fix: x\n\nCo-Authored-By: Someone <a@b.c>\"')" 'BLOCKED: AI attribution'
+describe 'git-guard: attribution block is one line'
+expect_stderr_line "$ATTRIBUTION_BLOCK"
+describe 'git-guard: gh pr create with Generated with blocked'
+expect_exit git-guard.sh 2 "$(bash_payload 'gh pr create --title t --body \"Generated with a tool\"')" "$ATTRIBUTION_BLOCK"
+describe 'git-guard: echo with Claude Code allowed'
+expect_exit git-guard.sh 0 "$(bash_payload 'echo \"Claude Code\"')"
+describe 'git-guard: gh pr edit with Anthropic blocked'
+expect_exit git-guard.sh 2 "$(bash_payload 'gh pr edit 4 --body \"thanks Anthropic\"')" "$ATTRIBUTION_BLOCK"
+describe 'git-guard: attribution match is case-insensitive'
+expect_exit git-guard.sh 2 "$(bash_payload 'GIT COMMIT -m \"co-authored-by: x\"')" "$ATTRIBUTION_BLOCK"
+describe 'git-guard: command split across lines still counts'
+expect_exit git-guard.sh 2 "$(bash_payload 'git\ncommit -m \"x noreply@anthropic.com\"')" "$ATTRIBUTION_BLOCK"
+describe 'git-guard: malformed payload allowed'
+expect_exit git-guard.sh 0 'not json {"command":'
+describe 'git-guard: empty payload allowed'
+expect_exit git-guard.sh 0 ''
+
+describe 'git-guard: commit --no-verify blocked'
+expect_exit git-guard.sh 2 "$(bash_payload 'git commit --no-verify -m \"fix: x\"')" 'BLOCKED: hook bypass'
+describe 'git-guard: hook bypass block is one line'
+expect_stderr_line "$NO_VERIFY_BLOCK"
+describe 'git-guard: commit -n blocked'
+expect_exit git-guard.sh 2 "$(bash_payload 'git commit -m \"fix: x\" -n')" "$NO_VERIFY_BLOCK"
+describe 'git-guard: push --no-verify blocked'
+expect_exit git-guard.sh 2 "$(bash_payload 'git push --no-verify origin feature')" "$NO_VERIFY_BLOCK"
+describe 'git-guard: hook bypass inside a compound command blocked'
+expect_exit git-guard.sh 2 "$(bash_payload 'git add -A && git commit -n -m \"x\" && git log -1')" "$NO_VERIFY_BLOCK"
+describe 'git-guard: --no-verify match is case-insensitive'
+expect_exit git-guard.sh 2 "$(bash_payload 'GIT COMMIT --NO-VERIFY -m x')" "$NO_VERIFY_BLOCK"
+describe 'git-guard: -n inside a double-quoted message allowed'
+expect_exit git-guard.sh 0 "$(bash_payload 'git commit -m \"keep -n out of it\"')"
+describe 'git-guard: -n inside a single-quoted message allowed'
+expect_exit git-guard.sh 0 "$(bash_payload "git commit -m 'keep -n out of it'")"
+describe 'git-guard: escaped quote inside a message keeps the quoted span'
+expect_exit git-guard.sh 0 "$(bash_payload 'git commit -m \"say \\\"hi\\\" -n\"')"
+describe 'git-guard: --no-verify named in a commit message allowed'
+expect_exit git-guard.sh 0 "$(bash_payload 'git commit -m \"docs: forbid --no-verify\"')"
+describe 'git-guard: -n as part of a longer token allowed'
+expect_exit git-guard.sh 0 "$(bash_payload 'git commit -m x --no-edit -nope')"
+describe 'git-guard: -n of another command in the compound allowed'
+expect_exit git-guard.sh 0 "$(bash_payload 'git commit -m \"x\" && git log -n 1')"
+describe 'git-guard: push -n (dry run) allowed'
+expect_exit git-guard.sh 0 "$(bash_payload 'git push -n origin feature')"
+
+describe 'git-guard: push --force blocked'
+expect_exit git-guard.sh 2 "$(bash_payload 'git push --force origin feature')" 'BLOCKED: forced push'
+describe 'git-guard: forced push block is one line'
+expect_stderr_line "$FORCE_PUSH_BLOCK"
+describe 'git-guard: push -f blocked'
+expect_exit git-guard.sh 2 "$(bash_payload 'git push origin feature -f')" "$FORCE_PUSH_BLOCK"
+describe 'git-guard: forced push inside a compound command blocked'
+expect_exit git-guard.sh 2 "$(bash_payload 'git fetch origin && git push --force origin feature; git status')" "$FORCE_PUSH_BLOCK"
+describe 'git-guard: forced push in a subshell blocked'
+expect_exit git-guard.sh 2 "$(bash_payload '(git push -f)')" "$FORCE_PUSH_BLOCK"
+describe 'git-guard: push --force-with-lease allowed'
+expect_exit git-guard.sh 0 "$(bash_payload 'git push --force-with-lease origin feature')"
+describe 'git-guard: push --force-with-lease with a ref allowed'
+expect_exit git-guard.sh 0 "$(bash_payload 'git push --force-with-lease=feature:abc123 origin feature')"
+describe 'git-guard: push --force-if-includes allowed'
+expect_exit git-guard.sh 0 "$(bash_payload 'git push --force-with-lease --force-if-includes origin feature')"
+describe 'git-guard: -f on a non-push command allowed'
+expect_exit git-guard.sh 0 "$(bash_payload 'git checkout -f main')"
+describe 'git-guard: --force named in a commit message allowed'
+expect_exit git-guard.sh 0 "$(bash_payload 'git commit -m \"docs: never git push --force\"')"
+describe 'git-guard: plain push allowed'
+expect_exit git-guard.sh 0 "$(bash_payload 'git push -u origin feature')"
+reset_env
+
+describe 'git-guard: plugin option true turns the guard on without a conf file'
+CLAUDE_PLUGIN_OPTION_GIT_HANDLING=true
+export CLAUDE_PLUGIN_OPTION_GIT_HANDLING
+expect_exit git-guard.sh 2 "$(bash_payload 'git commit --no-verify -m x')" "$NO_VERIFY_BLOCK"
+reset_env
+describe 'git-guard: plugin option false overrides git.handling on in the project conf'
+use_project_conf 'git.handling = on'
+CLAUDE_PLUGIN_OPTION_GIT_HANDLING=false
+export CLAUDE_PLUGIN_OPTION_GIT_HANDLING
+expect_exit git-guard.sh 0 "$(bash_payload 'git push --force origin feature')"
 reset_env
 
 # ---------------------------------------------------------------- emoji-scan
@@ -419,10 +502,10 @@ reset_env
 
 describe 'config: fixture project carries no guild.conf'
 expect_equal 'absent' "$([ -e "$FIXTURE_PROJECT/.claude/guild.conf" ] && printf present || printf absent)"
-describe 'config: defaults declare fifteen keys, all on'
-expect_equal '15' "$(config_query count_on_switches)"
-describe 'config: defaults all on'
-expect_equal '' "$(config_query guild_disabled_keys)"
+describe 'config: defaults declare fifteen keys, fourteen on'
+expect_equal '14' "$(config_query count_on_switches)"
+describe 'config: defaults turn only git.handling off'
+expect_equal 'git.handling' "$(config_query guild_disabled_keys)"
 describe 'config: user conf turns a switch off'
 use_user_conf 'hooks.emoji_scan = off'
 expect_equal 'off' "$(switch_state hooks.emoji_scan)"
@@ -432,7 +515,7 @@ expect_equal 'on' "$(switch_state hooks.emoji_scan)"
 reset_env
 describe 'config: unknown key ignored'
 use_user_conf 'hooks.not_a_switch = off'
-expect_equal '' "$(config_query guild_disabled_keys)"
+expect_equal 'git.handling' "$(config_query guild_disabled_keys)"
 describe 'config: unknown key reads as on'
 expect_equal 'on' "$(switch_state hooks.not_a_switch)"
 reset_env
@@ -444,25 +527,25 @@ review.security = off # trailing comment
 =off
   # docs.sync = off
 review.norms=No"
-expect_equal 'review.norms' "$(config_query guild_disabled_keys)"
+expect_equal 'git.handling review.norms' "$(config_query guild_disabled_keys)"
 reset_env
 describe 'config: values are case-insensitive'
 use_user_conf "review.security = OFF
 docs.sync = False
 style.terse = YES"
-expect_equal 'docs.sync review.security' "$(config_query guild_disabled_keys)"
+expect_equal 'docs.sync git.handling review.security' "$(config_query guild_disabled_keys)"
 reset_env
 describe 'config: CRLF line endings'
 new_scratch_dir
 printf 'review.security = off\r\nhooks.emoji_scan = off\r\n' >"$SCRATCH_DIR/.claude/guild.conf"
 HOME=$SCRATCH_DIR
-expect_equal 'hooks.emoji_scan review.security' "$(config_query guild_disabled_keys)"
+expect_equal 'git.handling hooks.emoji_scan review.security' "$(config_query guild_disabled_keys)"
 reset_env
 describe 'config: guild_disabled_keys sorted and space separated'
 use_user_conf "style.terse = off
 docs.sync = off
 hooks.receipt_check = off"
-expect_equal 'docs.sync hooks.receipt_check style.terse' "$(config_query guild_disabled_keys)"
+expect_equal 'docs.sync git.handling hooks.receipt_check style.terse' "$(config_query guild_disabled_keys)"
 reset_env
 describe 'config: missing defaults file never disables anything'
 new_scratch_dir
@@ -473,7 +556,41 @@ reset_env
 describe 'config: unset CLAUDE_PLUGIN_ROOT derives the root from the sourcing script'
 use_user_conf 'review.security = off'
 unset CLAUDE_PLUGIN_ROOT
-expect_equal 'review.security' "$(config_query guild_disabled_keys)"
+expect_equal 'git.handling review.security' "$(config_query guild_disabled_keys)"
+reset_env
+
+# VALUE WANT: git.handling state with the plugin option set to VALUE and no conf file.
+expect_option_state() {
+  describe "config: plugin option [$1] maps git.handling to $2"
+  CLAUDE_PLUGIN_OPTION_GIT_HANDLING=$1
+  export CLAUDE_PLUGIN_OPTION_GIT_HANDLING
+  expect_equal "$2" "$(switch_state git.handling)"
+  reset_env
+}
+expect_option_state true on
+expect_option_state TRUE on
+expect_option_state 1 on
+expect_option_state On on
+expect_option_state yes on
+expect_option_state false off
+expect_option_state 0 off
+expect_option_state '' off
+expect_option_state maybe off
+describe 'config: git.handling on in the project conf applies when the plugin option is unset'
+use_project_conf 'git.handling = on'
+expect_equal 'on' "$(switch_state git.handling)"
+describe 'config: plugin option false wins over the project conf'
+CLAUDE_PLUGIN_OPTION_GIT_HANDLING=false
+export CLAUDE_PLUGIN_OPTION_GIT_HANDLING
+expect_equal 'off' "$(switch_state git.handling)"
+reset_env
+describe 'config: plugin option true wins over the user conf'
+use_user_conf 'git.handling = off'
+CLAUDE_PLUGIN_OPTION_GIT_HANDLING=true
+export CLAUDE_PLUGIN_OPTION_GIT_HANDLING
+expect_equal 'on' "$(switch_state git.handling)"
+describe 'config: plugin option sets git.handling only'
+expect_equal '' "$(config_query guild_disabled_keys)"
 reset_env
 
 # ---------------------------------------------------------------- session-context
@@ -482,8 +599,12 @@ describe 'session-context: always-on has Reply style by default'
 expect_stdout_contains '## Reply style' session-context.sh context/always-on.md
 describe 'session-context: always-on carries the length budget'
 expect_stdout_contains '- Length budget: a status update is at most six lines.' session-context.sh context/always-on.md
-describe 'session-context: no switches-off section by default'
+describe 'session-context: switches-off section lists git.handling by default'
+expect_stdout_contains "## Guild switches off${NL}${NL}git.handling" session-context.sh context/always-on.md
+describe 'session-context: no switches-off section when git.handling is on'
+use_user_conf 'git.handling = on'
 expect_stdout_lacks '## Guild switches off' session-context.sh context/always-on.md
+reset_env
 describe 'session-context: always-on default has no marker lines'
 expect_stdout_lacks '{{' session-context.sh context/always-on.md
 describe 'session-context: style.terse off drops Reply style'
@@ -492,7 +613,7 @@ expect_stdout_lacks '## Reply style' session-context.sh context/always-on.md
 describe 'session-context: style.terse off keeps Delegation'
 expect_stdout_contains '## Delegation' session-context.sh context/always-on.md
 describe 'session-context: switches-off section lists the off key'
-expect_stdout_contains "## Guild switches off${NL}${NL}style.terse" session-context.sh context/always-on.md
+expect_stdout_contains "## Guild switches off${NL}${NL}git.handling, style.terse" session-context.sh context/always-on.md
 reset_env
 describe 'session-context: rules.universal off drops Universal code rules'
 use_user_conf 'rules.universal = off'
@@ -579,6 +700,51 @@ if [ -n "$WINDOWS_ROOT_BACKSLASH" ]; then
   expect_stdout_contains "$WINDOWS_ROOT_FORWARD/skills/guild/DAG.md" session-context.sh context/procedure.md
   reset_env
 fi
+
+GUILD_COMMIT_SENTENCE='Commits only on request, by the main thread, through the guild `git` skill.'
+PROJECT_COMMIT_SENTENCE="Commits only on request, by the main thread, through the project's git skill named under \`## Git\`."
+describe 'session-context: Step 6 routes commits through the project git skill by default'
+expect_stdout_contains "Paraphrase receipts.${NL}${PROJECT_COMMIT_SENTENCE}${NL}QA surfaces" session-context.sh context/procedure.md
+describe 'session-context: Step 6 default lacks the guild git skill wording'
+expect_stdout_lacks "$GUILD_COMMIT_SENTENCE" session-context.sh context/procedure.md
+use_project_conf 'git.handling = on'
+describe 'session-context: Step 6 routes commits through the guild git skill when git.handling is on'
+expect_stdout_contains "Paraphrase receipts.${NL}${GUILD_COMMIT_SENTENCE}${NL}QA surfaces" session-context.sh context/procedure.md
+describe 'session-context: Step 6 with git.handling on lacks the project git skill wording'
+expect_stdout_lacks "$PROJECT_COMMIT_SENTENCE" session-context.sh context/procedure.md
+describe 'session-context: git.handling on leaves no marker lines in the procedure'
+expect_stdout_lacks '{{' session-context.sh context/procedure.md
+describe 'session-context: rendered procedure with git.handling on under 9000 bytes'
+expect_stdout_under 9000 session-context.sh context/procedure.md
+reset_env
+describe 'session-context: plugin option true picks the guild git skill wording'
+CLAUDE_PLUGIN_OPTION_GIT_HANDLING=true
+export CLAUDE_PLUGIN_OPTION_GIT_HANDLING
+expect_stdout_contains "$GUILD_COMMIT_SENTENCE" session-context.sh context/procedure.md
+reset_env
+describe 'session-context: every switch on leaves no marker lines in the procedure'
+use_user_conf "$(sed -n 's/= off$/= on/p' "$REPO_ROOT/config/defaults.conf")"
+expect_stdout_lacks '{{' session-context.sh context/procedure.md
+reset_env
+
+# Points CLAUDE_PLUGIN_ROOT at a scratch root whose context/markers.md holds a plain and a
+# negated block on the same switch.
+use_marker_root() {
+  new_scratch_dir
+  mkdir -p "$SCRATCH_DIR/config" "$SCRATCH_DIR/context"
+  cp "$REPO_ROOT/config/defaults.conf" "$SCRATCH_DIR/config/defaults.conf"
+  printf '%s\n' head '{{#if review.security}}' plain '{{/if}}' '{{#if !review.security}}' negated '{{/if}}' tail >"$SCRATCH_DIR/context/markers.md"
+  CLAUDE_PLUGIN_ROOT=$SCRATCH_DIR
+}
+describe 'session-context: negated block dropped while its switch is on'
+use_marker_root
+run_context session-context.sh context/markers.md
+expect_equal "head${NL}plain${NL}tail" "$RUN_STDOUT"
+describe 'session-context: negated block kept while its switch is off'
+use_user_conf 'review.security = off'
+run_context session-context.sh context/markers.md
+expect_equal "head${NL}negated${NL}tail" "$RUN_STDOUT"
+reset_env
 
 # ---------------------------------------------------------------- prompt-reinforce, size check
 
