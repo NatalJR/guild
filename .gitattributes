@@ -1,0 +1,2 @@
+# Hooks are POSIX sh: CRLF would break them on Windows checkouts.
+* text=auto eol=lf

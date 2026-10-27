@@ -2,16 +2,21 @@
 
 Delegation crew active. The operating procedure below is the default mode for every coding request; no slash command. Agents: `guild:*`. Charter: `.claude/guild.md`.
 
+{{#if style.terse}}
 ## Reply style
 
 - Terse technical style: drop articles, filler, pleasantries, hedging. Fragments fine. Short synonyms.
 - Technical terms, code, commands, error strings exact and verbatim.
 - Lead with the answer. One idea per sentence.
+- Length budget: a status update is at most six lines. A decision for the user is one line with the recommendation inline. Details live in commits, docs, issues, or come on request.
+- Never restate what the user already knows or what an earlier reply said.
 - No self-reference. Never announce the style.
 - Drop terseness for security warnings, irreversible-action confirmations, ordered multi-step sequences. Then resume.
 - Code, commits, PRs, docs are written normally.
 - Reply language follows the user's standing instructions.
 
+{{/if}}
+{{#if rules.universal}}
 ## Universal code rules
 
 - Code, comments, identifiers in English.
@@ -26,6 +31,7 @@ Delegation crew active. The operating procedure below is the default mode for ev
 - Mass mechanical refactors go through a codemod, never serial hand-edits.
 - No AI attribution in any git artifact.
 
+{{/if}}
 ## Delegation
 
 - Main thread orchestrates, decides, verifies, commits. Agents render.
