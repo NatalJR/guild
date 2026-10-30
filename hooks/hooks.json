@@ -1,0 +1,79 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "exec sh \"${CLAUDE_PLUGIN_ROOT}/hooks/session-context.sh\" context/always-on.md\n& \"${CLAUDE_PLUGIN_ROOT}/hooks/session-context.ps1\" context/always-on.md; exit $LASTEXITCODE",
+            "timeout": 5,
+            "statusMessage": "Loading guild context..."
+          },
+          {
+            "type": "command",
+            "command": "exec sh \"${CLAUDE_PLUGIN_ROOT}/hooks/session-context.sh\" context/procedure.md\n& \"${CLAUDE_PLUGIN_ROOT}/hooks/session-context.ps1\" context/procedure.md; exit $LASTEXITCODE",
+            "timeout": 5,
+            "statusMessage": "Loading guild procedure..."
+          },
+          {
+            "type": "command",
+            "command": "exec sh \"${CLAUDE_PLUGIN_ROOT}/hooks/render-agents.sh\"\n& \"${CLAUDE_PLUGIN_ROOT}/hooks/render-agents.ps1\"; exit $LASTEXITCODE",
+            "timeout": 5,
+            "statusMessage": "Rendering guild agent options..."
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "exec sh \"${CLAUDE_PLUGIN_ROOT}/hooks/prompt-reinforce.sh\"\n& \"${CLAUDE_PLUGIN_ROOT}/hooks/prompt-reinforce.ps1\"; exit $LASTEXITCODE",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "exec sh \"${CLAUDE_PLUGIN_ROOT}/hooks/render-agents.sh\"\n& \"${CLAUDE_PLUGIN_ROOT}/hooks/render-agents.ps1\"; exit $LASTEXITCODE",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "exec sh \"${CLAUDE_PLUGIN_ROOT}/hooks/git-guard.sh\"\n& \"${CLAUDE_PLUGIN_ROOT}/hooks/git-guard.ps1\"; exit $LASTEXITCODE",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "exec sh \"${CLAUDE_PLUGIN_ROOT}/hooks/emoji-scan.sh\"\n& \"${CLAUDE_PLUGIN_ROOT}/hooks/emoji-scan.ps1\"; exit $LASTEXITCODE",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "exec sh \"${CLAUDE_PLUGIN_ROOT}/hooks/receipt-check.sh\"\n& \"${CLAUDE_PLUGIN_ROOT}/hooks/receipt-check.ps1\"; exit $LASTEXITCODE",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}

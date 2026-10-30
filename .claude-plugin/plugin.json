@@ -1,0 +1,184 @@
+{
+  "name": "guild",
+  "version": "0.3.0",
+  "description": "Delegation guild: project-agnostic investigator/builder/architect/reviewer/security/scribe crew with a per-project charter.",
+  "author": {
+    "name": "NatalJR",
+    "url": "https://github.com/NatalJR"
+  },
+  "homepage": "https://github.com/NatalJR/guild",
+  "repository": "https://github.com/NatalJR/guild",
+  "keywords": [
+    "delegation",
+    "subagents",
+    "orchestration",
+    "code-review",
+    "security-review",
+    "workflow"
+  ],
+  "license": "MIT",
+  "userConfig": {
+    "git_handling": {
+      "type": "boolean",
+      "title": "Git handling",
+      "description": "Let the guild handle git: a generic git skill plus a guard hook that denies AI attribution, --no-verify and forced pushes. Off: your project's own git conventions apply.",
+      "default": false
+    },
+    "investigator_model": {
+      "type": "string",
+      "title": "Investigator model",
+      "description": "Model for guild:investigator, the read-only code locator.",
+      "options": [
+        "haiku",
+        "sonnet",
+        "opus",
+        "fable",
+        "inherit"
+      ],
+      "default": "haiku"
+    },
+    "investigator_effort": {
+      "type": "string",
+      "title": "Investigator effort",
+      "description": "Reasoning effort for guild:investigator, the read-only code locator.",
+      "options": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "default": "medium"
+    },
+    "builder_model": {
+      "type": "string",
+      "title": "Builder model",
+      "description": "Model for guild:builder, the surgical 1-2 file editor.",
+      "options": [
+        "haiku",
+        "sonnet",
+        "opus",
+        "fable",
+        "inherit"
+      ],
+      "default": "opus"
+    },
+    "builder_effort": {
+      "type": "string",
+      "title": "Builder effort",
+      "description": "Reasoning effort for guild:builder, the surgical 1-2 file editor.",
+      "options": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "default": "medium"
+    },
+    "architect_model": {
+      "type": "string",
+      "title": "Architect model",
+      "description": "Model for guild:architect, the multi-file implementer.",
+      "options": [
+        "haiku",
+        "sonnet",
+        "opus",
+        "fable",
+        "inherit"
+      ],
+      "default": "opus"
+    },
+    "architect_effort": {
+      "type": "string",
+      "title": "Architect effort",
+      "description": "Reasoning effort for guild:architect, the multi-file implementer.",
+      "options": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "default": "high"
+    },
+    "reviewer_model": {
+      "type": "string",
+      "title": "Reviewer model",
+      "description": "Model for guild:reviewer, the non-security diff reviewer.",
+      "options": [
+        "haiku",
+        "sonnet",
+        "opus",
+        "fable",
+        "inherit"
+      ],
+      "default": "opus"
+    },
+    "reviewer_effort": {
+      "type": "string",
+      "title": "Reviewer effort",
+      "description": "Reasoning effort for guild:reviewer, the non-security diff reviewer.",
+      "options": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "default": "high"
+    },
+    "security_model": {
+      "type": "string",
+      "title": "Security model",
+      "description": "Model for guild:security, the security-only reviewer; the guild never downgrades this one; lowering it is your call.",
+      "options": [
+        "haiku",
+        "sonnet",
+        "opus",
+        "fable",
+        "inherit"
+      ],
+      "default": "fable"
+    },
+    "security_effort": {
+      "type": "string",
+      "title": "Security effort",
+      "description": "Reasoning effort for guild:security, the security-only reviewer; the guild never downgrades this one; lowering it is your call.",
+      "options": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "default": "high"
+    },
+    "scribe_model": {
+      "type": "string",
+      "title": "Scribe model",
+      "description": "Model for guild:scribe, the docs-sync and prose renderer.",
+      "options": [
+        "haiku",
+        "sonnet",
+        "opus",
+        "fable",
+        "inherit"
+      ],
+      "default": "sonnet"
+    },
+    "scribe_effort": {
+      "type": "string",
+      "title": "Scribe effort",
+      "description": "Reasoning effort for guild:scribe, the docs-sync and prose renderer.",
+      "options": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "default": "medium"
+    }
+  }
+}
