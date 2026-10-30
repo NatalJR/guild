@@ -141,7 +141,7 @@ Windows without Git Bash:
 
 - **Automatic twin:** Claude Code runs hook commands through PowerShell, and each hook entry then runs the PowerShell 7 twin of its script (`hooks/<script>.ps1`, also valid Windows PowerShell 5.1 syntax) automatically; there is nothing to configure.
 - **Same behaviour:** the twins use only PowerShell and .NET, read the same switches, and produce the same stdout, stderr and exit codes as the sh scripts; both implementations run the shared cases in `tests/cases/`.
-- **PowerShell 7 needed:** the fallback needs PowerShell 7 (`pwsh`) installed, which the harness prefers over Windows PowerShell.
+- **PowerShell 7 needed:** the fallback needs PowerShell 7 (`pwsh`) on PATH. The harness prefers it over Windows PowerShell, and the fallback works whichever of the two launches the hook command (PowerShell 7 or Windows PowerShell 5.1), because the command spawns `pwsh` itself to run the twin.
 - **Harmless error:** on that path the first line of each hook command (`exec sh ...`) prints a harmless `exec is not recognized` error to stderr before the twin runs (see Hooks).
 
 ## Layout
@@ -285,14 +285,14 @@ Every entry is a two-line sh/PowerShell polyglot, so one `hooks.json` serves bot
 
 ```
 exec sh "${CLAUDE_PLUGIN_ROOT}/hooks/<script>.sh" [part]
-& "${CLAUDE_PLUGIN_ROOT}/hooks/<script>.ps1" [part]; exit $LASTEXITCODE
+pwsh -NoProfile -File "${CLAUDE_PLUGIN_ROOT}/hooks/<script>.ps1" [part]; exit $LASTEXITCODE
 ```
 
 How the polyglot runs:
 
 - **Shell choice:** Claude Code hands a hook command to `sh` on Linux and macOS and through Git Bash on Windows when it finds it; otherwise it uses PowerShell.
 - **Under sh:** `exec` replaces the shell with the sh script, so the second line is never read.
-- **Under PowerShell:** `exec` is not a command: the first line fails with a non-terminating error and the second line runs the PowerShell twin and exits with its status.
+- **Under PowerShell:** `exec` is not a command: the first line fails with a non-terminating error and the second line spawns `pwsh -NoProfile -File` on the PowerShell twin and exits with its status. Spawning `pwsh` (rather than invoking the script with the `&` call operator) propagates the twin's exit code whether the harness launched PowerShell 7 or Windows PowerShell 5.1, so a blocking hook still exits 2, and it names a real program with a literal plugin-root path.
 - **Twins:** the table names the sh scripts; each `.ps1` twin behaves the same.
 - **Library paths:** every hook script resolves its shared libraries through `${CLAUDE_PLUGIN_ROOT}` only (`${CLAUDE_PLUGIN_ROOT}/hooks/lib/` in sh, `$env:CLAUDE_PLUGIN_ROOT\hooks\lib\` in PowerShell), never from its own location; when the variable is unset or a library is missing, the hook prints nothing and exits 0.
 

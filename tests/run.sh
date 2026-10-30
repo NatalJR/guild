@@ -770,10 +770,10 @@ hooks_json_twins() {
 }
 
 # Counts the commands of the exact two-line polyglot shape: line 1 execs the sh script (so sh
-# never reads line 2), line 2 calls the .ps1 twin with the same arguments (PowerShell, where
-# exec is not a command, runs it and exits with its status).
+# never reads line 2), line 2 spawns pwsh on the .ps1 twin with the same arguments (PowerShell,
+# where exec is not a command, runs it and exits with its status under both 5.1 and 7).
 count_polyglot_commands() {
-  grep -c '"command": "exec sh \\"${CLAUDE_PLUGIN_ROOT}/hooks/\([A-Za-z0-9_-]*\)\.sh\\"\([^"\\]*\)\\n& \\"${CLAUDE_PLUGIN_ROOT}/hooks/\1\.ps1\\"\2; exit \$LASTEXITCODE",*$' "$HOOKS/hooks.json"
+  grep -c '"command": "exec sh \\"${CLAUDE_PLUGIN_ROOT}/hooks/\([A-Za-z0-9_-]*\)\.sh\\"\([^"\\]*\)\\npwsh -NoProfile -File \\"${CLAUDE_PLUGIN_ROOT}/hooks/\1\.ps1\\"\2; exit \$LASTEXITCODE",*$' "$HOOKS/hooks.json"
 }
 
 # SCRIPT...: prints every name with no file under hooks/.
@@ -793,6 +793,8 @@ describe 'hooks.json: eight commands, all the sh/PowerShell polyglot'
 expect_equal '8 8' "$(grep -c '"command":' "$HOOKS/hooks.json") $(count_polyglot_commands)"
 describe 'hooks.json: render-agents wired once on SessionStart and once on UserPromptSubmit'
 expect_equal '2' "$(hooks_json_scripts | grep -c '^render-agents\.sh$')"
+describe 'hooks.json: no call-operator line'
+expect_equal '0' "$(grep -c '\\n& ' "$HOOKS/hooks.json")"
 describe 'hooks.json: no shell field'
 expect_equal '0' "$(grep -c '"shell"' "$HOOKS/hooks.json")"
 
