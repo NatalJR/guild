@@ -22,7 +22,7 @@ A project-agnostic Claude Code plugin that routes coding work through a crew of 
 
 ## What it is
 
-This section summarizes what the plugin ships and how its agents are tiered. It is a Claude Code plugin owned by NatalJR: a project-agnostic delegation crew. It ships:
+This section summarizes what the plugin ships and how its agents are tiered. It is a project-agnostic delegation crew for Claude Code. It ships:
 
 - **Six agents:** `guild:investigator`, `guild:builder`, `guild:architect`, `guild:reviewer`, `guild:security`, `guild:scribe`.
 - **Default procedure:** `context/procedure.md`, injected at session start, so every coding request walks the delegation DAG without a slash command: classify, investigate, scope gate, design gate, implement, review, report.
@@ -340,6 +340,5 @@ This section records which definition wins when the same name exists at several 
 
 This section lists what the plugin deliberately does not do.
 
-- Not published to any marketplace.
 - No telemetry.
 - No gateway or proxy.
