@@ -40,7 +40,7 @@ none beyond the universal rules; shell specifics: strict POSIX sh (`#!/bin/sh`, 
 - Hook stdin is untrusted data from tool calls and subagent output: never `eval` it, never pass it to a shell as code, never interpolate it into a command line unquoted.
 - File paths from payloads are only ever read (never written or executed) and only inside `CLAUDE_PROJECT_DIR` when that variable is set.
 - Config files (`guild.conf`) are parsed line by line with a fixed `key = value` grammar; no shell expansion of values.
-- The plugin writes only inside its own `agents/` (the option render hook, frontmatter lines only, allowlisted values) and `CLAUDE_PLUGIN_DATA`; it never reads secrets.
+- The plugin writes only inside its own `agents/` (the option render hook, frontmatter lines only, allowlisted values); it never reads secrets and never touches `CLAUDE_PLUGIN_DATA`.
 
 ## Docs
 

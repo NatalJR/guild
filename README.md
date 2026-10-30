@@ -235,6 +235,16 @@ Claude Code runs a hook command through `sh -c` on Linux and macOS and through G
 
 SessionStart has one entry per context part because the harness caps a single hook's stdout near 10KB and replaces anything larger with a 2KB preview. `sh hooks/check-context-size.sh` (a maintenance check, not a hook) renders each part with the shipped defaults and fails when any part exceeds 9000 bytes. A malformed payload or an internal error never blocks: the hook prints nothing and exits 0. `sh tests/run.sh` is the contract suite for all of the above; `pwsh -NoProfile -File tests/run.ps1` runs the same shared cases from `tests/cases/`, plus its own coded cases, against the PowerShell twins.
 
+## What the plugin runs, reads and writes
+
+The plugin runs six hook scripts, each a POSIX sh script with a PowerShell twin, and nothing else on its own. The harness launches them: `session-context` and `render-agents` at SessionStart, `prompt-reinforce` and `render-agents` at UserPromptSubmit, `git-guard` at PreToolUse on `Bash` and `PowerShell`, `emoji-scan` at PostToolUse on `Edit` and `Write`, and `receipt-check` at SubagentStop. Each command names its script by the full `${CLAUDE_PLUGIN_ROOT}` path (see Hooks); there is no package launcher, no install step, and no interpreter other than sh or PowerShell.
+
+- Reads: the tool-call payload on stdin; `config/defaults.conf` inside the plugin; `~/.claude/guild.conf` and `<project>/.claude/guild.conf` when present; the file just written, for the emoji scan, only when it lies inside the project directory; the plugin's own `agents/*.md`; the `CLAUDE_PLUGIN_OPTION_*` variables the harness exports for the plugin's options.
+- Writes: only `agents/<name>.md` frontmatter lines inside the plugin folder, through the option render hook, with values restricted to the allowlists in Model and effort per agent. Nothing under the user's home, nothing in the project.
+- Sends and fetches: nothing. No network access of any kind, no telemetry, no credentials read.
+- Personal data: none read or stored.
+- Workflows: run only when invoked by name, through the Claude Code Workflow tool, with the agents' own permissions.
+
 ## Non-goals
 
 - Not published to any marketplace.
