@@ -36,11 +36,13 @@ contains() {
 }
 
 # Sets REPLACED to TEXT with every literal FROM replaced by TO.
+# No quote may sit inside a double-quoted string in a hook script: the Claude Directory validator cannot read it.
 replace_all() {
   REPLACED=''
   replace_rest=$1
   while [ -n "$2" ] && contains "$replace_rest" "$2"; do
-    REPLACED="$REPLACED${replace_rest%%"$2"*}$3"
+    replace_head=${replace_rest%%"$2"*}
+    REPLACED=$REPLACED$replace_head$3
     replace_rest=${replace_rest#*"$2"}
   done
   REPLACED="$REPLACED$replace_rest"

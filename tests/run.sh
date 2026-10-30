@@ -798,6 +798,43 @@ expect_equal '0' "$(grep -c '\\n& ' "$HOOKS/hooks.json")"
 describe 'hooks.json: no shell field'
 expect_equal '0' "$(grep -c '"shell"' "$HOOKS/hooks.json")"
 
+# FILE... (stdin when none): prints file:line for every line holding a double quote inside a
+# ${ } that is itself inside a double-quoted string (the Claude Directory validator cannot read
+# it). Quote state resets per line; comment lines and trailing comments are skipped.
+quote_nesting_violations() {
+  awk '
+    BEGIN { squote = "\047"; dquote = "\""; backslash = "\\" }
+    /^[ \t]*#/ { next }
+    {
+      in_single = 0; in_double = 0; depth = 0; previous = " "
+      for (i = 1; i <= length($0); i++) {
+        c = substr($0, i, 1)
+        if (in_single) { if (c == squote) in_single = 0; previous = c; continue }
+        if (c == backslash) { i++; previous = "x"; continue }
+        if (in_double) {
+          if (c == dquote && depth > 0) { print FILENAME ":" FNR; break }
+          if (c == dquote) in_double = 0
+          else if (c == "$" && substr($0, i + 1, 1) == "{") { depth++; i++ }
+          else if (c == "}" && depth > 0) depth--
+        } else if (c == squote) in_single = 1
+        else if (c == dquote) in_double = 1
+        else if (c == "#" && (i == 1 || previous == " " || previous == "\t" || previous == ";")) break
+        previous = c
+      }
+    }
+  ' "$@"
+}
+
+# Prints the pre-fix replace_all line of session-context.sh, the shape the validator rejects.
+nested_quote_sample() {
+  printf '%s\n' '    REPLACED="$REPLACED${replace_rest%%"$2"*}$3"'
+}
+
+describe 'hooks tree: no quote nested inside a double-quoted string'
+expect_equal '' "$(quote_nesting_violations "$HOOKS"/*.sh "$HOOKS"/lib/*.sh)"
+describe 'hooks tree: the nested-quote check flags the pre-fix replace_all line'
+expect_equal '1' "$(($(nested_quote_sample | quote_nesting_violations | wc -l)))"
+
 # ---------------------------------------------------------------- summary
 
 printf '%s passed, %s failed\n' "$PASSED" "$FAILED"
