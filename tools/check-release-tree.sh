@@ -19,7 +19,8 @@
 # - every shipped text file but the .claude-plugin manifests: a URL (`://`), except one
 #   repository link in README.md
 # - the scripts the PreToolUse entry of hooks/hooks.json runs: the words allow, approve or
-#   permissionDecision (any case), and in .sh any printf whose line holds a `%`
+#   permissionDecision (any case), and in .sh any printf whose line holds a `%` and any backslash
+#   outside an awk regex literal
 # - README.md: a `$` followed by a letter or `{`
 # Dependencies: sh, awk, find.
 set -u
@@ -150,6 +151,13 @@ pre_tool_use_rules() {
       tolower($0) ~ /allow|approve|permissiondecision/ { report("PreToolUse decision word") }
       FILENAME ~ /[.]sh$/ && /(^|[^A-Za-z0-9_])printf([^A-Za-z0-9_]|$)/ && index($0, "%") {
         report("PreToolUse printf with %")
+      }
+      FILENAME ~ /[.]sh$/ && index(outside_regex_literals($0), "\\") { report("PreToolUse backslash") }
+      # TEXT without its awk regex literals: a / after the line start, a blank, a single quote or
+      # one of ( , ~ ! { & |, up to the next unescaped /.
+      function outside_regex_literals(text) {
+        gsub(/(^|[ \t\047(,~!{&|])\/([^\/\\]|\\.)*\//, " ", text)
+        return text
       }
     ' "$script_path"
   done

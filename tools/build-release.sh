@@ -75,6 +75,8 @@ copy_shipped_files() {
   copy_file .claude-plugin/marketplace.json
   copy_file .claude-plugin/icon.png
   copy_file LICENSE
+  # Without it a Windows clone checks the hooks out with CRLF line endings and sh fails on them.
+  copy_file .gitattributes
   for shipped_dir in agents skills context config workflows; do
     copy_directory "$shipped_dir"
   done
