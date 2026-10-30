@@ -15,6 +15,7 @@
 set -u
 
 CR=$(printf '\r')
+BACKSLASH=$(printf '\134')
 
 # Succeeds when CLAUDE_PLUGIN_ROOT is set and holds the library this hook sources; the
 # harness always exports it for plugin hooks.
@@ -92,7 +93,7 @@ main() {
   ! is_suppressed "$part" || return 0
   root=${CLAUDE_PLUGIN_ROOT}
   [ -f "$root/$part" ] && [ -r "$root/$part" ] || return 0
-  replace_all "$root" '\' '/'
+  replace_all "$root" "$BACKSLASH" '/'
   ROOT_FORWARD=$REPLACED
   rendered=$(render_file "$root/$part") || return 0
   printf '%s\n' "$rendered"
