@@ -76,9 +76,12 @@ render_line() {
 
 render_file() {
   keep=yes
-  while IFS= read -r line || [ -n "$line" ]; do
+  old_ifs=$IFS
+  IFS=''
+  while read -r line || [ -n "$line" ]; do
     render_line "$line"
   done <"$1"
+  IFS=$old_ifs
 }
 
 print_switches_changed() {
