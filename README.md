@@ -290,7 +290,7 @@ exec sh "${CLAUDE_PLUGIN_ROOT}/hooks/<script>.sh" [part]
 
 How the polyglot runs:
 
-- **Shell choice:** Claude Code runs a hook command through `sh -c` on Linux and macOS and through Git Bash on Windows when it finds it; otherwise it uses PowerShell.
+- **Shell choice:** Claude Code hands a hook command to `sh` on Linux and macOS and through Git Bash on Windows when it finds it; otherwise it uses PowerShell.
 - **Under sh:** `exec` replaces the shell with the sh script, so the second line is never read.
 - **Under PowerShell:** `exec` is not a command: the first line fails with a non-terminating error and the second line runs the PowerShell twin and exits with its status.
 - **Twins:** the table names the sh scripts; each `.ps1` twin behaves the same.

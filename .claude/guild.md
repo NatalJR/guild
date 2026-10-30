@@ -8,7 +8,7 @@ guild: a project-agnostic Claude Code plugin (agents, the guild and git skills, 
 
 ```bash
 sh tests/run.sh                                                    # hook contract suite on the host sh (Git Bash here); the lint gate
-wsl -e sh -c 'cd "$(wslpath -a .)" && sh tests/run.sh'              # same suite under dash on WSL Ubuntu (strict POSIX), from the checkout; both must pass before a commit
+wsl -e sh tests/run.sh                                             # same suite under dash on WSL Ubuntu (strict POSIX); WSL starts in the checkout; both must pass before a commit
 pwsh -NoProfile -File tests/run.ps1                                # PowerShell 7 fallback implementations, same shared cases
 env -u CLAUDECODE claude plugin validate .                         # manifest and layout validation
 sh hooks/check-context-size.sh                                   # every rendered context part stays under 9000 bytes
