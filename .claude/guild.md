@@ -12,10 +12,7 @@ wsl -e sh tests/run.sh                                             # same suite 
 pwsh -NoProfile -File tests/run.ps1                                # PowerShell 7 fallback implementations, same shared cases
 env -u CLAUDECODE claude plugin validate .                         # manifest and layout validation
 sh hooks/check-context-size.sh                                   # every rendered context part stays under 9000 bytes
-for f in workflows/*.js; do { printf 'async function workflow() {
-'; sed 's/^export const meta/const meta/' "$f"; printf '
-}
-'; } | node --input-type=module --check && echo "ok $f"; done   # workflow syntax, body-wrapped because the harness allows top-level return; node is a dev-time check only, never a runtime dependency
+# workflow scripts: syntax-check each workflows/*.js with node after editing it (node is a dev-time check only, never a runtime dependency; wrap the body in an async function first because the harness allows top-level return)
 ```
 
 Hook scripts are exercised by piping a JSON payload on stdin and asserting the exit code (0 allow, 2 block) and the stderr message. Nothing in this repository needs network access.
