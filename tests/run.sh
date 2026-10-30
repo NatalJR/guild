@@ -540,7 +540,7 @@ expect_equal 'absent' "$([ -e "$FIXTURE_PROJECT/.claude/guild.conf" ] && printf 
 describe 'config: defaults declare fourteen keys, all on'
 expect_equal '14' "$(config_query count_on_switches)"
 describe 'config: shipped defaults report no changed keys'
-expect_equal '' "$(config_query guild_changed_keys)"
+expect_equal '' "$(config_query guild_changed_switches)"
 describe 'config: git.handling reads as off by default'
 expect_equal 'off' "$(switch_state git.handling)"
 describe 'config: user conf turns a switch off'
@@ -552,7 +552,7 @@ expect_equal 'on' "$(switch_state hooks.emoji_scan)"
 reset_env
 describe 'config: unknown key ignored'
 use_user_conf 'hooks.not_a_switch = off'
-expect_equal '' "$(config_query guild_changed_keys)"
+expect_equal '' "$(config_query guild_changed_switches)"
 describe 'config: unknown key reads as on'
 expect_equal 'on' "$(switch_state hooks.not_a_switch)"
 reset_env
@@ -564,30 +564,30 @@ review.security = off # trailing comment
 =off
   # docs.sync = off
 review.norms=No"
-expect_equal 'review.norms=off' "$(config_query guild_changed_keys)"
+expect_equal 'review.norms=off' "$(config_query guild_changed_switches)"
 reset_env
 describe 'config: values are case-insensitive'
 use_user_conf "review.security = OFF
 docs.sync = False
 style.terse = YES"
-expect_equal 'docs.sync=off review.security=off' "$(config_query guild_changed_keys)"
+expect_equal 'docs.sync=off review.security=off' "$(config_query guild_changed_switches)"
 reset_env
 describe 'config: CRLF line endings'
 new_scratch_dir
 printf 'review.security = off\r\nhooks.emoji_scan = off\r\n' >"$SCRATCH_DIR/.claude/guild.conf"
 HOME=$SCRATCH_DIR
-expect_equal 'hooks.emoji_scan=off review.security=off' "$(config_query guild_changed_keys)"
+expect_equal 'hooks.emoji_scan=off review.security=off' "$(config_query guild_changed_switches)"
 reset_env
-describe 'config: guild_changed_keys sorted and space separated'
+describe 'config: guild_changed_switches sorted and space separated'
 use_user_conf "style.terse = off
 docs.sync = off
 hooks.receipt_check = off"
-expect_equal 'docs.sync=off hooks.receipt_check=off style.terse=off' "$(config_query guild_changed_keys)"
+expect_equal 'docs.sync=off hooks.receipt_check=off style.terse=off' "$(config_query guild_changed_switches)"
 reset_env
 describe 'config: a key set to its shipped default is not reported as changed'
 use_user_conf "docs.sync = on
 review.security = on"
-expect_equal '' "$(config_query guild_changed_keys)"
+expect_equal '' "$(config_query guild_changed_switches)"
 reset_env
 describe 'config: missing defaults file never disables anything'
 new_scratch_dir
@@ -597,18 +597,18 @@ expect_equal 'on' "$(switch_state review.security)"
 describe 'config: missing defaults file keeps git.handling off'
 expect_equal 'off' "$(switch_state git.handling)"
 describe 'config: missing defaults file reports no changed keys'
-expect_equal '' "$(config_query guild_changed_keys)"
+expect_equal '' "$(config_query guild_changed_switches)"
 describe 'config: missing defaults file, plugin option true turns git.handling on'
 CLAUDE_PLUGIN_OPTION_GIT_HANDLING=true
 export CLAUDE_PLUGIN_OPTION_GIT_HANDLING
 expect_equal 'on' "$(switch_state git.handling)"
 describe 'config: missing defaults file, plugin option true reports git.handling=on'
-expect_equal 'git.handling=on' "$(config_query guild_changed_keys)"
+expect_equal 'git.handling=on' "$(config_query guild_changed_switches)"
 reset_env
 describe 'config: unset CLAUDE_PLUGIN_ROOT reads no defaults file'
 use_user_conf 'review.security = off'
 unset CLAUDE_PLUGIN_ROOT
-expect_equal '' "$(config_query guild_changed_keys)"
+expect_equal '' "$(config_query guild_changed_switches)"
 reset_env
 
 # VALUE WANT: git.handling state with the plugin option set to VALUE and no conf file.
@@ -632,7 +632,7 @@ describe 'config: git.handling on in the project conf is ignored'
 use_project_conf 'git.handling = on'
 expect_equal 'off' "$(switch_state git.handling)"
 describe 'config: git.handling in the project conf reports no changed keys'
-expect_equal '' "$(config_query guild_changed_keys)"
+expect_equal '' "$(config_query guild_changed_switches)"
 describe 'config: plugin option false leaves git.handling off'
 CLAUDE_PLUGIN_OPTION_GIT_HANDLING=false
 export CLAUDE_PLUGIN_OPTION_GIT_HANDLING
@@ -644,7 +644,7 @@ CLAUDE_PLUGIN_OPTION_GIT_HANDLING=true
 export CLAUDE_PLUGIN_OPTION_GIT_HANDLING
 expect_equal 'on' "$(switch_state git.handling)"
 describe 'config: plugin option sets git.handling only'
-expect_equal 'git.handling=on' "$(config_query guild_changed_keys)"
+expect_equal 'git.handling=on' "$(config_query guild_changed_switches)"
 reset_env
 describe 'config: git.handling declared in the defaults file is ignored'
 new_scratch_dir
@@ -770,10 +770,10 @@ hooks_json_twins() {
 }
 
 # Counts the commands of the exact two-line polyglot shape: line 1 execs the sh script (so sh
-# never reads line 2), line 2 spawns pwsh on the .ps1 twin with the same arguments (PowerShell,
-# where exec is not a command, runs it and exits with its status under both 5.1 and 7).
+# never reads line 2), line 2 runs the .ps1 twin with the call operator and the same arguments
+# (PowerShell, where exec is not a command, runs it and exits with its status).
 count_polyglot_commands() {
-  grep -c '"command": "exec sh \\"${CLAUDE_PLUGIN_ROOT}/hooks/\([A-Za-z0-9_-]*\)\.sh\\"\([^"\\]*\)\\npwsh -NoProfile -File \\"${CLAUDE_PLUGIN_ROOT}/hooks/\1\.ps1\\"\2; exit \$LASTEXITCODE",*$' "$HOOKS/hooks.json"
+  grep -c '"command": "exec sh \\"${CLAUDE_PLUGIN_ROOT}/hooks/\([A-Za-z0-9_-]*\)\.sh\\"\([^"\\]*\)\\n& \\"${CLAUDE_PLUGIN_ROOT}/hooks/\1\.ps1\\"\2; exit \$LASTEXITCODE",*$' "$HOOKS/hooks.json"
 }
 
 # SCRIPT...: prints every name with no file under hooks/.
@@ -793,47 +793,22 @@ describe 'hooks.json: eight commands, all the sh/PowerShell polyglot'
 expect_equal '8 8' "$(grep -c '"command":' "$HOOKS/hooks.json") $(count_polyglot_commands)"
 describe 'hooks.json: render-agents wired once on SessionStart and once on UserPromptSubmit'
 expect_equal '2' "$(hooks_json_scripts | grep -c '^render-agents\.sh$')"
-describe 'hooks.json: no call-operator line'
-expect_equal '0' "$(grep -c '\\n& ' "$HOOKS/hooks.json")"
+describe 'hooks.json: no pwsh -File line'
+expect_equal '0' "$(grep -c 'pwsh -NoProfile -File' "$HOOKS/hooks.json")"
 describe 'hooks.json: no shell field'
 expect_equal '0' "$(grep -c '"shell"' "$HOOKS/hooks.json")"
-
-# FILE... (stdin when none): prints file:line for every line holding a double quote inside a
-# ${ } that is itself inside a double-quoted string (the Claude Directory validator cannot read
-# it). Quote state resets per line; comment lines and trailing comments are skipped.
-quote_nesting_violations() {
-  awk '
-    BEGIN { squote = "\047"; dquote = "\""; backslash = "\\" }
-    /^[ \t]*#/ { next }
-    {
-      in_single = 0; in_double = 0; depth = 0; previous = " "
-      for (i = 1; i <= length($0); i++) {
-        c = substr($0, i, 1)
-        if (in_single) { if (c == squote) in_single = 0; previous = c; continue }
-        if (c == backslash) { i++; previous = "x"; continue }
-        if (in_double) {
-          if (c == dquote && depth > 0) { print FILENAME ":" FNR; break }
-          if (c == dquote) in_double = 0
-          else if (c == "$" && substr($0, i + 1, 1) == "{") { depth++; i++ }
-          else if (c == "}" && depth > 0) depth--
-        } else if (c == squote) in_single = 1
-        else if (c == dquote) in_double = 1
-        else if (c == "#" && (i == 1 || previous == " " || previous == "\t" || previous == ";")) break
-        previous = c
-      }
-    }
-  ' "$@"
-}
 
 # Prints the pre-fix replace_all line of session-context.sh, the shape the validator rejects.
 nested_quote_sample() {
   printf '%s\n' '    REPLACED="$REPLACED${replace_rest%%"$2"*}$3"'
 }
 
+# The nested-quote rule lives in the release-tree checker; its single-rule mode reads stdin when
+# given no file.
 describe 'hooks tree: no quote nested inside a double-quoted string'
-expect_equal '' "$(quote_nesting_violations "$HOOKS"/*.sh "$HOOKS"/lib/*.sh)"
+expect_equal '' "$(sh "$REPO_ROOT/tools/check-release-tree.sh" --nested-quotes "$HOOKS"/*.sh "$HOOKS"/lib/*.sh)"
 describe 'hooks tree: the nested-quote check flags the pre-fix replace_all line'
-expect_equal '1' "$(($(nested_quote_sample | quote_nesting_violations | wc -l)))"
+expect_equal '1' "$(($(nested_quote_sample | sh "$REPO_ROOT/tools/check-release-tree.sh" --nested-quotes | wc -l)))"
 
 # ---------------------------------------------------------------- summary
 

@@ -1,16 +1,18 @@
 # Guild switch table (sourced by the guild hooks; POSIX sh).
 # Sources, later wins: <plugin root>/config/defaults.conf, ~/.claude/guild.conf,
 # <project>/.claude/guild.conf. Missing files are skipped silently.
-# Grammar per line: blank or `#` comment ignored; otherwise `key = value`, optional spaces
-# around `=`, keys matching ^[a-z][a-z0-9_.]*$, values on|off|true|false|yes|no in any case.
+# Grammar per line: blank or `#` comment ignored; otherwise `name = value`, optional spaces
+# around `=`, names matching ^[a-z][a-z0-9_.]*$, values on|off|true|false|yes|no in any case.
 # Any other line (inline comments included) is ignored silently. The defaults file declares the
-# known keys; a key the defaults file does not declare is ignored in the user and project files
-# and reads as on. Lines are only matched against that grammar, never expanded or executed.
-# git.handling is not a conf key: a line for it is ignored in every file, the defaults file
+# known switches; a switch the defaults file does not declare is ignored in the user and project
+# files and reads as on. Lines are only matched against that grammar, never expanded or executed.
+# git.handling is not a conf switch: a line for it is ignored in every file, the defaults file
 # included. The plugin option CLAUDE_PLUGIN_OPTION_GIT_HANDLING (install prompt or /config) is
 # its only source: true|1|on|yes in any case is on, any other value is off, unset reads as off.
 # The defaults file is read from ${CLAUDE_PLUGIN_ROOT} only; when it is unset no defaults file is
 # read (the hooks exit before sourcing this file in that case).
+# The Claude Directory validator cannot read `case` statements, so every match below is a `[ ]`
+# test on a parameter expansion.
 set -u
 
 GUILD_SWITCHES=''
@@ -19,7 +21,7 @@ _GUILD_NL='
 '
 _GUILD_CR=$(printf '\r')
 
-# Builds GUILD_SWITCHES: newline-separated key=on / key=off entries, one per key.
+# Builds GUILD_SWITCHES: newline-separated name=on / name=off entries, one per switch.
 # GUILD_DEFAULTS keeps the same table as declared by the defaults file alone.
 guild_config_load() {
   GUILD_SWITCHES=''
@@ -31,15 +33,15 @@ guild_config_load() {
   return 0
 }
 
-# Returns 0 when KEY is on, 1 when off. A key with no entry takes its built-in default.
+# Returns 0 when switch NAME is on, 1 when off. A switch with no entry takes its built-in default.
 guild_switch() {
   _guild_table_value "$GUILD_SWITCHES" "$1" || _guild_builtin_default "$1"
   [ "$_guild_value" = on ]
 }
 
-# Prints the key=on / key=off entries whose value differs from the shipped default, sorted by
-# key, space separated; nothing when every key holds its default.
-guild_changed_keys() {
+# Prints the name=on / name=off entries whose value differs from the shipped default, sorted by
+# name, space separated; nothing when every switch holds its default.
+guild_changed_switches() {
   _guild_changed=$(_guild_changed_entries | LC_ALL=C sort -t '=' -k 1,1 | tr '\n' ' ')
   [ -z "$_guild_changed" ] || printf '%s\n' "${_guild_changed% }"
   return 0
@@ -53,27 +55,36 @@ _guild_changed_entries() {
   done
 }
 
-# Sets _guild_value to KEY's shipped default: the defaults file entry, else the built-in one.
+# Sets _guild_value to NAME's shipped default: the defaults file entry, else the built-in one.
 _guild_default_value() {
   _guild_table_value "$GUILD_DEFAULTS" "$1" || _guild_builtin_default "$1"
 }
 
-# TABLE KEY: sets _guild_value to KEY's state in TABLE; returns 1 when TABLE has no entry.
+# TABLE NAME: sets _guild_value to NAME's state in TABLE; returns 1 when TABLE has no entry.
 _guild_table_value() {
-  case "$_GUILD_NL$1$_GUILD_NL" in
-    *"$_GUILD_NL$2=on$_GUILD_NL"*) _guild_value=on ;;
-    *"$_GUILD_NL$2=off$_GUILD_NL"*) _guild_value=off ;;
-    *) return 1 ;;
-  esac
+  if _guild_table_has "$1" "$2=on"; then
+    _guild_value=on
+  elif _guild_table_has "$1" "$2=off"; then
+    _guild_value=off
+  else
+    return 1
+  fi
 }
 
-# Built-in defaults for a key no defaults file declares: git.handling is opt-in, the rest on.
+# TABLE ENTRY: succeeds when ENTRY is one whole line of TABLE.
+_guild_table_has() {
+  _guild_lines="$_GUILD_NL$1$_GUILD_NL"
+  _guild_rest=${_guild_lines#*"$_GUILD_NL$2$_GUILD_NL"}
+  [ "$_guild_rest" != "$_guild_lines" ]
+}
+
+# Built-in defaults for a switch no defaults file declares: git.handling is opt-in, the rest on.
 _guild_builtin_default() {
   _guild_value=on
   [ "$1" != git.handling ] || _guild_value=off
 }
 
-# FILE MODE: applies every valid line; MODE declare accepts new keys, override only known ones.
+# FILE MODE: applies every valid line; MODE declare accepts new switches, override only known ones.
 _guild_config_read() {
   [ -f "$1" ] && [ -r "$1" ] || return 0
   _guild_config_mode=$2
@@ -85,19 +96,19 @@ _guild_config_read() {
 _guild_config_apply() {
   _guild_config_parse "$1" || return 0
   # git.handling comes from the plugin option only.
-  [ "$_guild_key" != git.handling ] || return 0
-  _guild_switch_known "$_guild_key" || [ "$_guild_config_mode" = declare ] || return 0
-  _guild_switch_store "$_guild_key" "$_guild_state"
+  [ "$_guild_name" != git.handling ] || return 0
+  _guild_switch_known "$_guild_name" || [ "$_guild_config_mode" = declare ] || return 0
+  _guild_switch_store "$_guild_name" "$_guild_state"
 }
 
-# Sets _guild_key and _guild_state from a `key = value` line; returns 1 for any other line.
+# Sets _guild_name and _guild_state from a `name = value` line; returns 1 for any other line.
 _guild_config_parse() {
   _guild_text=${1%"$_GUILD_CR"}
-  case "$_guild_text" in *=*) ;; *) return 1 ;; esac
+  [ "${_guild_text#*=}" != "$_guild_text" ] || return 1
   _guild_trim "${_guild_text%%=*}"
-  _guild_key=$_guild_trimmed
+  _guild_name=$_guild_trimmed
   _guild_trim "${_guild_text#*=}"
-  _guild_is_key "$_guild_key" && _guild_parse_state "$_guild_trimmed"
+  _guild_is_name "$_guild_name" && _guild_parse_state "$_guild_trimmed"
 }
 
 _guild_trim() {
@@ -105,45 +116,62 @@ _guild_trim() {
   _guild_trimmed=${_guild_trimmed%"${_guild_trimmed##*[![:space:]]}"}
 }
 
-_guild_is_key() {
-  case "$1" in [a-z]*) ;; *) return 1 ;; esac
-  case "$1" in *[!a-z0-9_.]*) return 1 ;; esac
-  return 0
+# Succeeds when NAME starts with a lowercase letter and holds only [a-z0-9_.].
+_guild_is_name() {
+  [ "${1#[a-z]}" != "$1" ] || return 1
+  [ "${1%%[!a-z0-9_.]*}" = "$1" ]
 }
 
 _guild_parse_state() {
-  case "$1" in
-    [Oo][Nn] | [Tt][Rr][Uu][Ee] | [Yy][Ee][Ss]) _guild_state=on ;;
-    [Oo][Ff][Ff] | [Ff][Aa][Ll][Ss][Ee] | [Nn][Oo]) _guild_state=off ;;
-    *) return 1 ;;
-  esac
+  if _guild_is_on_word "$1"; then
+    _guild_state=on
+  elif _guild_is_off_word "$1"; then
+    _guild_state=off
+  else
+    return 1
+  fi
 }
 
-# Maps the git handling plugin option, when set, onto git.handling.
+# Succeeds when WORD is on, true or yes in any case.
+_guild_is_on_word() {
+  [ -n "$1" ] || return 1
+  [ -z "${1#[Oo][Nn]}" ] || [ -z "${1#[Tt][Rr][Uu][Ee]}" ] || [ -z "${1#[Yy][Ee][Ss]}" ]
+}
+
+# Succeeds when WORD is off, false or no in any case.
+_guild_is_off_word() {
+  [ -n "$1" ] || return 1
+  [ -z "${1#[Oo][Ff][Ff]}" ] || [ -z "${1#[Ff][Aa][Ll][Ss][Ee]}" ] || [ -z "${1#[Nn][Oo]}" ]
+}
+
+# Maps the git handling plugin option, when set, onto git.handling: 1 or an on word is on.
 _guild_option_apply() {
   [ -n "${CLAUDE_PLUGIN_OPTION_GIT_HANDLING+set}" ] || return 0
-  case "$CLAUDE_PLUGIN_OPTION_GIT_HANDLING" in
-    [Tt][Rr][Uu][Ee] | 1 | [Oo][Nn] | [Yy][Ee][Ss]) _guild_switch_store git.handling on ;;
-    *) _guild_switch_store git.handling off ;;
-  esac
+  _guild_option=$CLAUDE_PLUGIN_OPTION_GIT_HANDLING
+  if [ "$_guild_option" = 1 ] || _guild_is_on_word "$_guild_option"; then
+    _guild_switch_store git.handling on
+  else
+    _guild_switch_store git.handling off
+  fi
 }
 
 _guild_switch_known() {
-  case "$_GUILD_NL$GUILD_SWITCHES$_GUILD_NL" in
-    *"$_GUILD_NL$1="*) return 0 ;;
-  esac
-  return 1
+  _guild_lines="$_GUILD_NL$GUILD_SWITCHES$_GUILD_NL"
+  _guild_rest=${_guild_lines#*"$_GUILD_NL$1="}
+  [ "$_guild_rest" != "$_guild_lines" ]
 }
 
 _guild_switch_store() {
   if _guild_switch_known "$1"; then
     _guild_switch_replace "$1" "$2"
+  elif [ -z "$GUILD_SWITCHES" ]; then
+    GUILD_SWITCHES="$1=$2"
   else
-    GUILD_SWITCHES="${GUILD_SWITCHES:+$GUILD_SWITCHES$_GUILD_NL}$1=$2"
+    GUILD_SWITCHES="$GUILD_SWITCHES$_GUILD_NL$1=$2"
   fi
 }
 
-# Rewrites the existing entry for KEY in place, keeping the table order.
+# Rewrites the existing entry for NAME in place, keeping the table order.
 _guild_switch_replace() {
   _guild_table="$_GUILD_NL$GUILD_SWITCHES$_GUILD_NL"
   _guild_before=${_guild_table%%"$_GUILD_NL$1="*}

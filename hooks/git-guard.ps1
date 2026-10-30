@@ -2,7 +2,7 @@
 # implementation; the harness runs this one only where no Git Bash is found): the guild git
 # guard. Denies, in the command text, AI attribution in a git commit or a PR create/edit, a hook
 # bypass (--no-verify; -n on git commit) and a forced push (--force or -f; --force-with-lease and
-# --force-if-includes stay allowed). The whole command string is evaluated, compound commands
+# --force-if-includes are not blocked). The whole command string is evaluated, compound commands
 # included.
 # Text-level guardrail only: it inspects the command string, so attribution supplied through
 # files (commit -F, --body-file), templates, or environment variables is not detected. The flag
@@ -11,7 +11,9 @@
 # refspec force push (+branch) or git options before the subcommand (git -C dir push) are not
 # detected either.
 # Matching follows `LC_ALL=C grep -i -E`: the text is ASCII-lowercased and the patterns are
-# written in lowercase, [[:space:]] is the C-locale set.
+# written in lowercase, [[:space:]] is the C-locale set. The attribution e-mail address needs no
+# alternative of its own: `anthropic` already matches it.
+# Writes nothing to stdout: a block message goes to stderr with exit 2.
 # Switch: git.handling, set by the plugin option only (off by default). A
 # malformed payload or an internal error never blocks.
 # Windows PowerShell 5.1 compatible syntax.
@@ -20,7 +22,7 @@ $ErrorActionPreference = 'Stop'
 
 $SPACE = '[ \t\n\v\f\r]'
 $GIT_ARTIFACT_PATTERN = "git$SPACE+commit|gh$SPACE+pr$SPACE+(create|edit)"
-$ATTRIBUTION_PATTERN = 'co-authored-by|generated with|claude code|anthropic|noreply@anthropic\.com'
+$ATTRIBUTION_PATTERN = 'co-authored-by|generated with|claude code|anthropic'
 # The rest of a git subcommand up to the next shell operator, then the end of a standalone token.
 $SEGMENT = "($SPACE[^;&|]*)?$SPACE"
 $FLAG_BOUNDARY = '([ \t\n\v\f\r;&|)]|$)'
@@ -37,15 +39,14 @@ function Test-Match([string]$Text, [string]$Pattern) {
 }
 
 # Newlines are folded to spaces for the attribution check, which reads the whole command, so an
-# artifact command split across lines still counts; the newline `printf '%s\n'` adds before `tr`
-# becomes the trailing space.
+# artifact command split across lines still counts; a trailing space is added as in the sh twin.
 function Get-Folded([string]$Text) {
     return $Text.Replace([string][char]10, ' ') + ' '
 }
 
 # Newlines become `;` for the flag checks, so a newline ends a command segment like any other
-# separator and the next line's flags are never read as the previous command's; the newline
-# `printf '%s\n'` adds before `tr` becomes the trailing `;`.
+# separator and the next line's flags are never read as the previous command's; a trailing `;`
+# is added as in the sh twin.
 function Get-Segmented([string]$Text) {
     return $Text.Replace([string][char]10, ';') + ';'
 }
@@ -81,9 +82,10 @@ function Invoke-GitGuard {
 }
 
 try {
-    if ([string]$env:CLAUDE_PLUGIN_ROOT -eq '') { exit 0 }
-    . "$env:CLAUDE_PLUGIN_ROOT\hooks\lib\payload.ps1"
-    . "$env:CLAUDE_PLUGIN_ROOT\hooks\lib\config.ps1"
+    $pluginRoot = [string][System.Environment]::GetEnvironmentVariable('CLAUDE_PLUGIN_ROOT')
+    if ($pluginRoot -eq '') { exit 0 }
+    . ($pluginRoot + '/hooks/lib/payload.ps1')
+    . ($pluginRoot + '/hooks/lib/config.ps1')
     $status = Invoke-GitGuard
 } catch {
     $status = 0

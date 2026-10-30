@@ -3,7 +3,7 @@
 # per-agent plugin options (install prompt or /config) into the agent frontmatter. For each
 # agent, CLAUDE_PLUGIN_OPTION_<AGENT>_MODEL and CLAUDE_PLUGIN_OPTION_<AGENT>_EFFORT, when set to
 # an allowlisted value that differs from the `model:` / `effort:` line of
-# ${CLAUDE_PLUGIN_ROOT}/agents/<agent>.md, replace that line in place; nothing else in the file
+# <plugin root>/agents/<agent>.md, replace that line in place; nothing else in the file
 # changes. Unset or invalid values are ignored. Prints one notice line only when a file changed
 # (the harness injects stdout as context), listing the agents rendered. Writes only inside
 # agents/. An agent whose rewrite fails is skipped and the others still render; any other
@@ -19,9 +19,9 @@ $ALLOWED = @{
 }
 $FILE_UTF8 = New-Object System.Text.UTF8Encoding -ArgumentList $false, $false
 
-# AGENT KEY: the plugin option for KEY (model or effort), empty when unset.
-function Get-AgentOption([string]$Agent, [string]$Key) {
-    $name = 'CLAUDE_PLUGIN_OPTION_' + $Agent.ToUpperInvariant() + '_' + $Key.ToUpperInvariant()
+# AGENT SETTING: the plugin option for SETTING (model or effort), empty when unset.
+function Get-AgentOption([string]$Agent, [string]$Setting) {
+    $name = 'CLAUDE_PLUGIN_OPTION_' + $Agent.ToUpperInvariant() + '_' + $Setting.ToUpperInvariant()
     $value = [System.Environment]::GetEnvironmentVariable($name)
     if ($null -eq $value) { return '' }
     return $value
@@ -36,27 +36,28 @@ function Get-FrontmatterEnd([string[]]$Lines) {
     return $Lines.Length - 1
 }
 
-# LINES END KEY: the value of the first `KEY:` frontmatter line, empty when absent.
-function Get-FrontmatterValue([string[]]$Lines, [int]$End, [string]$Key) {
+# LINES END SETTING: the value of the first `SETTING:` frontmatter line, empty when absent.
+function Get-FrontmatterValue([string[]]$Lines, [int]$End, [string]$Setting) {
     for ($index = 0; $index -le $End; $index++) {
-        if ($Lines[$index].StartsWith($Key + ':', [System.StringComparison]::Ordinal)) {
-            return $Lines[$index].Substring($Key.Length + 1).TrimStart(' ').Replace([string][char]13, '')
+        if ($Lines[$index].StartsWith($Setting + ':', [System.StringComparison]::Ordinal)) {
+            return $Lines[$index].Substring($Setting.Length + 1).TrimStart(' ').Replace([string][char]13, '')
         }
     }
     return ''
 }
 
-# AGENT KEY CURRENT: the option value when allowed and CURRENT exists, else CURRENT.
-function Get-WantedValue([string]$Agent, [string]$Key, [string]$Current) {
-    $option = Get-AgentOption $Agent $Key
-    if ($Current -ne '' -and $ALLOWED[$Key] -ccontains $option) { return $option }
+# AGENT SETTING CURRENT: the option value when allowed and CURRENT exists, else CURRENT.
+function Get-WantedValue([string]$Agent, [string]$Setting, [string]$Current) {
+    $option = Get-AgentOption $Agent $Setting
+    if ($Current -ne '' -and $ALLOWED[$Setting] -ccontains $option) { return $option }
     return $Current
 }
 
-# LINES END KEY VALUE: replaces every `KEY:` frontmatter line with `KEY: VALUE`, in place.
-function Set-FrontmatterLine([string[]]$Lines, [int]$End, [string]$Key, [string]$Value) {
+# LINES END SETTING VALUE: replaces every `SETTING:` frontmatter line with `SETTING: VALUE`, in
+# place.
+function Set-FrontmatterLine([string[]]$Lines, [int]$End, [string]$Setting, [string]$Value) {
     for ($index = 0; $index -le $End; $index++) {
-        if ($Lines[$index].StartsWith($Key + ':', [System.StringComparison]::Ordinal)) { $Lines[$index] = $Key + ': ' + $Value }
+        if ($Lines[$index].StartsWith($Setting + ':', [System.StringComparison]::Ordinal)) { $Lines[$index] = $Setting + ': ' + $Value }
     }
 }
 
@@ -90,20 +91,20 @@ function Update-Agent([string]$Directory, [string]$Agent) {
 function Update-FrontmatterLines([string[]]$Lines, [int]$End, [string]$Agent) {
     $values = @{}
     $changed = $false
-    foreach ($key in @('model', 'effort')) {
-        if (Update-FrontmatterKey $Lines $End $Agent $key $values) { $changed = $true }
+    foreach ($setting in @('model', 'effort')) {
+        if (Update-FrontmatterSetting $Lines $End $Agent $setting $values) { $changed = $true }
     }
     if (-not $changed) { return '' }
     return $Agent + ' model=' + $values['model'] + ' effort=' + $values['effort']
 }
 
-# LINES END AGENT KEY VALUES: stores the wanted KEY value in VALUES and, when it differs from the
-# frontmatter, rewrites the KEY line; true when it did.
-function Update-FrontmatterKey([string[]]$Lines, [int]$End, [string]$Agent, [string]$Key, [hashtable]$Values) {
-    $current = Get-FrontmatterValue $Lines $End $Key
-    $Values[$Key] = Get-WantedValue $Agent $Key $current
-    if ($Values[$Key] -ceq $current) { return $false }
-    Set-FrontmatterLine $Lines $End $Key $Values[$Key]
+# LINES END AGENT SETTING VALUES: stores the wanted SETTING value in VALUES and, when it differs
+# from the frontmatter, rewrites the SETTING line; true when it did.
+function Update-FrontmatterSetting([string[]]$Lines, [int]$End, [string]$Agent, [string]$Setting, [hashtable]$Values) {
+    $current = Get-FrontmatterValue $Lines $End $Setting
+    $Values[$Setting] = Get-WantedValue $Agent $Setting $current
+    if ($Values[$Setting] -ceq $current) { return $false }
+    Set-FrontmatterLine $Lines $End $Setting $Values[$Setting]
     return $true
 }
 
@@ -118,9 +119,9 @@ function Get-RenderedAgent([string]$Directory, [string]$Agent) {
 }
 
 try {
-    $root = [string]$env:CLAUDE_PLUGIN_ROOT
+    $root = [string][System.Environment]::GetEnvironmentVariable('CLAUDE_PLUGIN_ROOT')
     if ($root -eq '') { exit 0 }
-    . "$env:CLAUDE_PLUGIN_ROOT\hooks\lib\payload.ps1"
+    . ($root + '/hooks/lib/payload.ps1')
     $directory = Join-Path $root 'agents'
     $rendered = @(@(foreach ($agent in $AGENTS) { Get-RenderedAgent $directory $agent }) | Where-Object { $_ -ne '' })
     if ($rendered.Count -gt 0) {

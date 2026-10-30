@@ -23,7 +23,7 @@
 //                            // (norms, security, every refuter) run at the effort of their own frontmatter
 // }
 //
-// Result: { dimensions: [{ key, confirmed, refutedCount, unverified }], totals, blocking } or { error }.
+// Result: { dimensions: [{ name, confirmed, refutedCount, unverified }], totals, blocking } or { error }.
 // `unverified` holds findings whose refuter died (kept, never silently dropped);
 // `totals.dimensionsDropped` names every dimension whose reviewer died.
 // `blocking` is true when a confirmed or unverified security finding is red or yellow,
@@ -189,11 +189,11 @@ function diffStep(diffCommand) {
 
 function findingsPrompt(dimension, diffCommand) {
   return [
-    `Pre-commit review wave, dimension "${dimension.key}".`,
+    `Pre-commit review wave, dimension "${dimension.name}".`,
     diffStep(diffCommand),
     'Review only that diff: read surrounding code for context, report only defects the diff introduces or touches.',
     dimension.prompt,
-    `Set dimension to "${dimension.key}" on every finding.`,
+    `Set dimension to "${dimension.name}" on every finding.`,
     FIND_ONLY
   ].join('\n')
 }
@@ -210,9 +210,9 @@ function refutePrompt(finding, rules, diffCommand) {
 
 function find(dimension, effort, diffCommand) {
   const options = {
-    label: `review:${dimension.key}`,
+    label: `review:${dimension.name}`,
     phase: 'Review',
-    schema: findingsSchema(dimension.key)
+    schema: findingsSchema(dimension.name)
   }
   if (dimension.agentType) options.agentType = dimension.agentType
   else options.effort = effort
@@ -220,9 +220,9 @@ function find(dimension, effort, diffCommand) {
 }
 
 function refute(finding, dimension, diffCommand) {
-  const lens = refuteLens(dimension.key === SECURITY_DIMENSION)
+  const lens = refuteLens(dimension.name === SECURITY_DIMENSION)
   return agent(refutePrompt(finding, lens.rules, diffCommand), {
-    label: `refute:${dimension.key}:${locate(finding)}`,
+    label: `refute:${dimension.name}:${locate(finding)}`,
     phase: 'Verify',
     agentType: lens.agentType,
     schema: VERDICT
@@ -236,18 +236,18 @@ async function verifyDimension(found, dimension, diffCommand) {
   const confirmed = reviewed.filter(isConfirmed).map(entry => entry.finding)
   const refuted = reviewed.filter(isRefuted)
   const unverified = reviewed.filter(entry => !entry.verdict)
-  logDropped(`review:${dimension.key}`, refuted, unverified)
-  return { key: dimension.key, confirmed, refutedCount: refuted.length, unverified: unverified.map(entry => entry.finding) }
+  logDropped(`review:${dimension.name}`, refuted, unverified)
+  return { name: dimension.name, confirmed, refutedCount: refuted.length, unverified: unverified.map(entry => entry.finding) }
 }
 
 function dropReviewer(dimension) {
-  const consequence = dimension.key === SECURITY_DIMENSION ? 'the security gate did not run, commit stays blocked' : 'no findings collected'
-  log(`review:${dimension.key}: reviewer agent died, dimension dropped (${consequence})`)
+  const consequence = dimension.name === SECURITY_DIMENSION ? 'the security gate did not run, commit stays blocked' : 'no findings collected'
+  log(`review:${dimension.name}: reviewer agent died, dimension dropped (${consequence})`)
   return null
 }
 
 function isBlocking(kept) {
-  if (!kept.some(result => result.key === SECURITY_DIMENSION)) return true
+  if (!kept.some(result => result.name === SECURITY_DIMENSION)) return true
   const open = kept.flatMap(result => result.confirmed.concat(result.unverified))
   return open.some(finding => finding.dimension === SECURITY_DIMENSION && SEVERE.includes(finding.severity))
 }
@@ -256,7 +256,7 @@ function totalsOf(results, dimensions) {
   const kept = results.filter(Boolean)
   return {
     dimensionsReviewed: kept.length,
-    dimensionsDropped: dimensions.filter((dimension, index) => !results[index]).map(dimension => dimension.key),
+    dimensionsDropped: dimensions.filter((dimension, index) => !results[index]).map(dimension => dimension.name),
     found: sum(kept, result => result.confirmed.length + result.refutedCount + result.unverified.length),
     confirmed: sum(kept, result => result.confirmed.length),
     refuted: sum(kept, result => result.refutedCount),
@@ -276,9 +276,9 @@ if (error) return { error }
 const diffCommand = input.diffCommand
 const effort = effortOf(input.effort)
 const dimensions = [
-  { key: 'norms', agentType: 'guild:reviewer', prompt: NORMS_FOCUS },
-  { key: 'correctness', agentType: null, prompt: CORRECTNESS_FOCUS },
-  { key: SECURITY_DIMENSION, agentType: SECURITY_AGENT, prompt: securityFocus(input.securityScope || DEFAULT_SECURITY_SCOPE) }
+  { name: 'norms', agentType: 'guild:reviewer', prompt: NORMS_FOCUS },
+  { name: 'correctness', agentType: null, prompt: CORRECTNESS_FOCUS },
+  { name: SECURITY_DIMENSION, agentType: SECURITY_AGENT, prompt: securityFocus(input.securityScope || DEFAULT_SECURITY_SCOPE) }
 ]
 const results = await pipeline(dimensions, dimension => find(dimension, effort, diffCommand), (found, dimension) => verifyDimension(found, dimension, diffCommand))
 const kept = results.filter(Boolean)

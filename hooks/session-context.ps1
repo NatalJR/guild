@@ -26,13 +26,13 @@ function Test-OpenMarker([string]$Marker) {
 
 # True when the block a `{{#if KEY}}` or `{{#if !KEY}}` marker opens is kept.
 function Test-BlockKept([string]$Marker) {
-    $key = $Marker.Substring(6, $Marker.Length - 8)
+    $switchName = $Marker.Substring(6, $Marker.Length - 8)
     $wanted = $true
-    if ($key.StartsWith('!', [System.StringComparison]::Ordinal)) {
-        $key = $key.Substring(1)
+    if ($switchName.StartsWith('!', [System.StringComparison]::Ordinal)) {
+        $switchName = $switchName.Substring(1)
         $wanted = $false
     }
-    return (Get-GuildSwitch $key) -eq $wanted
+    return (Get-GuildSwitch $switchName) -eq $wanted
 }
 
 # The keep state a marker line sets: on after `{{/if}}`, the block decision after an opening
@@ -56,7 +56,7 @@ function ConvertTo-RenderedText([string]$Content, [string]$RootForward) {
 }
 
 function Get-SwitchesChangedSection {
-    $changed = Get-GuildChangedKeys
+    $changed = Get-GuildChangedSwitches
     if ($changed -eq '') { return '' }
     return "`n## Guild switches changed`n`n" + $changed.Replace(' ', ', ') + "`n"
 }
@@ -79,9 +79,10 @@ function Get-SessionContext([string]$Part) {
 }
 
 try {
-    if ([string]$env:CLAUDE_PLUGIN_ROOT -eq '') { exit 0 }
-    . "$env:CLAUDE_PLUGIN_ROOT\hooks\lib\config.ps1"
-    . "$env:CLAUDE_PLUGIN_ROOT\hooks\lib\payload.ps1"
+    $pluginRoot = [string][System.Environment]::GetEnvironmentVariable('CLAUDE_PLUGIN_ROOT')
+    if ($pluginRoot -eq '') { exit 0 }
+    . ($pluginRoot + '/hooks/lib/config.ps1')
+    . ($pluginRoot + '/hooks/lib/payload.ps1')
     $part = ''
     if ($args.Count -gt 0) { $part = [string]$args[0] }
     Write-HookOutput (Get-SessionContext $part)

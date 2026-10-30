@@ -5,19 +5,19 @@
         "hooks": [
           {
             "type": "command",
-            "command": "exec sh \"${CLAUDE_PLUGIN_ROOT}/hooks/session-context.sh\" context/always-on.md\npwsh -NoProfile -File \"${CLAUDE_PLUGIN_ROOT}/hooks/session-context.ps1\" context/always-on.md; exit $LASTEXITCODE",
+            "command": "exec sh \"${CLAUDE_PLUGIN_ROOT}/hooks/session-context.sh\" context/always-on.md\n& \"${CLAUDE_PLUGIN_ROOT}/hooks/session-context.ps1\" context/always-on.md; exit $LASTEXITCODE",
             "timeout": 5,
             "statusMessage": "Loading guild context..."
           },
           {
             "type": "command",
-            "command": "exec sh \"${CLAUDE_PLUGIN_ROOT}/hooks/session-context.sh\" context/procedure.md\npwsh -NoProfile -File \"${CLAUDE_PLUGIN_ROOT}/hooks/session-context.ps1\" context/procedure.md; exit $LASTEXITCODE",
+            "command": "exec sh \"${CLAUDE_PLUGIN_ROOT}/hooks/session-context.sh\" context/procedure.md\n& \"${CLAUDE_PLUGIN_ROOT}/hooks/session-context.ps1\" context/procedure.md; exit $LASTEXITCODE",
             "timeout": 5,
             "statusMessage": "Loading guild procedure..."
           },
           {
             "type": "command",
-            "command": "exec sh \"${CLAUDE_PLUGIN_ROOT}/hooks/render-agents.sh\"\npwsh -NoProfile -File \"${CLAUDE_PLUGIN_ROOT}/hooks/render-agents.ps1\"; exit $LASTEXITCODE",
+            "command": "exec sh \"${CLAUDE_PLUGIN_ROOT}/hooks/render-agents.sh\"\n& \"${CLAUDE_PLUGIN_ROOT}/hooks/render-agents.ps1\"; exit $LASTEXITCODE",
             "timeout": 5,
             "statusMessage": "Rendering guild agent options..."
           }
@@ -29,12 +29,12 @@
         "hooks": [
           {
             "type": "command",
-            "command": "exec sh \"${CLAUDE_PLUGIN_ROOT}/hooks/prompt-reinforce.sh\"\npwsh -NoProfile -File \"${CLAUDE_PLUGIN_ROOT}/hooks/prompt-reinforce.ps1\"; exit $LASTEXITCODE",
+            "command": "exec sh \"${CLAUDE_PLUGIN_ROOT}/hooks/prompt-reinforce.sh\"\n& \"${CLAUDE_PLUGIN_ROOT}/hooks/prompt-reinforce.ps1\"; exit $LASTEXITCODE",
             "timeout": 5
           },
           {
             "type": "command",
-            "command": "exec sh \"${CLAUDE_PLUGIN_ROOT}/hooks/render-agents.sh\"\npwsh -NoProfile -File \"${CLAUDE_PLUGIN_ROOT}/hooks/render-agents.ps1\"; exit $LASTEXITCODE",
+            "command": "exec sh \"${CLAUDE_PLUGIN_ROOT}/hooks/render-agents.sh\"\n& \"${CLAUDE_PLUGIN_ROOT}/hooks/render-agents.ps1\"; exit $LASTEXITCODE",
             "timeout": 5
           }
         ]
@@ -46,7 +46,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "exec sh \"${CLAUDE_PLUGIN_ROOT}/hooks/git-guard.sh\"\npwsh -NoProfile -File \"${CLAUDE_PLUGIN_ROOT}/hooks/git-guard.ps1\"; exit $LASTEXITCODE",
+            "command": "exec sh \"${CLAUDE_PLUGIN_ROOT}/hooks/git-guard.sh\"\n& \"${CLAUDE_PLUGIN_ROOT}/hooks/git-guard.ps1\"; exit $LASTEXITCODE",
             "timeout": 5
           }
         ]
@@ -58,7 +58,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "exec sh \"${CLAUDE_PLUGIN_ROOT}/hooks/emoji-scan.sh\"\npwsh -NoProfile -File \"${CLAUDE_PLUGIN_ROOT}/hooks/emoji-scan.ps1\"; exit $LASTEXITCODE",
+            "command": "exec sh \"${CLAUDE_PLUGIN_ROOT}/hooks/emoji-scan.sh\"\n& \"${CLAUDE_PLUGIN_ROOT}/hooks/emoji-scan.ps1\"; exit $LASTEXITCODE",
             "timeout": 10
           }
         ]
@@ -69,7 +69,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "exec sh \"${CLAUDE_PLUGIN_ROOT}/hooks/receipt-check.sh\"\npwsh -NoProfile -File \"${CLAUDE_PLUGIN_ROOT}/hooks/receipt-check.ps1\"; exit $LASTEXITCODE",
+            "command": "exec sh \"${CLAUDE_PLUGIN_ROOT}/hooks/receipt-check.sh\"\n& \"${CLAUDE_PLUGIN_ROOT}/hooks/receipt-check.ps1\"; exit $LASTEXITCODE",
             "timeout": 5
           }
         ]

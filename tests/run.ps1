@@ -423,7 +423,7 @@ function Get-SwitchState([string]$Key) {
 
 function Get-ChangedKeys {
     Import-GuildConfig
-    return Get-GuildChangedKeys
+    return Get-GuildChangedSwitches
 }
 
 function Get-OnSwitchCount {
@@ -755,7 +755,7 @@ try {
     $hooksJson = $Utf8.GetString([System.IO.File]::ReadAllBytes((Join-Path $Hooks 'hooks.json')))
     $wiredScripts = @([regex]::Matches($hooksJson, '/hooks/([A-Za-z0-9_-]+\.sh)\\"') | ForEach-Object { $_.Groups[1].Value })
     $wiredTwins = @([regex]::Matches($hooksJson, '/hooks/([A-Za-z0-9_-]+\.ps1)\\"') | ForEach-Object { $_.Groups[1].Value })
-    $polyglotPattern = '"command": "exec sh \\"\$\{CLAUDE_PLUGIN_ROOT\}/hooks/([A-Za-z0-9_-]+)\.sh\\"([^"\\]*)\\npwsh -NoProfile -File \\"\$\{CLAUDE_PLUGIN_ROOT\}/hooks/\1\.ps1\\"\2; exit \$LASTEXITCODE"'
+    $polyglotPattern = '"command": "exec sh \\"\$\{CLAUDE_PLUGIN_ROOT\}/hooks/([A-Za-z0-9_-]+)\.sh\\"([^"\\]*)\\n& \\"\$\{CLAUDE_PLUGIN_ROOT\}/hooks/\1\.ps1\\"\2; exit \$LASTEXITCODE"'
     Set-Case 'hooks.json: every command runs an existing sh script'
     Assert-Equal '' (@($wiredScripts | Where-Object { -not [System.IO.File]::Exists((Join-Path $Hooks $_)) }) -join $NL)
     Set-Case 'hooks.json: eight script references found'
@@ -766,8 +766,8 @@ try {
     Assert-Equal '8 8' ([string][regex]::Matches($hooksJson, '"command":').Count + ' ' + [regex]::Matches($hooksJson, $polyglotPattern).Count)
     Set-Case 'hooks.json: render-agents wired once on SessionStart and once on UserPromptSubmit'
     Assert-Equal '2' ([string]@($wiredScripts | Where-Object { $_ -ceq 'render-agents.sh' }).Count)
-    Set-Case 'hooks.json: no call-operator line'
-    Assert-Equal '0' ([string][regex]::Matches($hooksJson, '\\n& ').Count)
+    Set-Case 'hooks.json: no pwsh -File line'
+    Assert-Equal '0' ([string][regex]::Matches($hooksJson, 'pwsh -NoProfile -File').Count)
     Set-Case 'hooks.json: no shell field'
     Assert-Equal '0' ([string][regex]::Matches($hooksJson, '"shell"').Count)
 } finally {

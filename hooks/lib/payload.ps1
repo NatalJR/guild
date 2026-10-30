@@ -32,9 +32,9 @@ function Read-Payload {
 # its value is not a string. The first line holding the key decides, as in the sed filter.
 function Get-PayloadField([string]$Payload, [string]$Name) {
     if ($Name -cnotmatch '^[A-Za-z0-9_]+\z') { return $null }
-    $keyPattern = New-Object System.Text.RegularExpressions.Regex -ArgumentList ('"' + $Name + '"[ \t\v\f\r]*:[ \t\v\f\r]*"')
+    $fieldPattern = New-Object System.Text.RegularExpressions.Regex -ArgumentList ('"' + $Name + '"[ \t\v\f\r]*:[ \t\v\f\r]*"')
     foreach ($line in $Payload.Split([char]10)) {
-        if ($keyPattern.IsMatch($line)) { return ConvertFrom-PayloadValue ($keyPattern.Replace($line, $PAYLOAD_MARK, 1)) }
+        if ($fieldPattern.IsMatch($line)) { return ConvertFrom-PayloadValue ($fieldPattern.Replace($line, $PAYLOAD_MARK, 1)) }
     }
     return $null
 }

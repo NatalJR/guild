@@ -54,7 +54,7 @@ function Get-CanonicalFilePath([string]$Path) {
 
 # Case-insensitive prefix match against the project root, with a trailing slash.
 function Test-InsideProject([string]$Path) {
-    $projectDirectory = [string]$env:CLAUDE_PROJECT_DIR
+    $projectDirectory = Get-GuildVariable 'CLAUDE_PROJECT_DIR'
     if ($projectDirectory -eq '') { return $true }
     $projectRoot = Get-AbsoluteDirectory (ConvertTo-ForwardSlash $projectDirectory)
     if ($null -eq $projectRoot) { $projectRoot = ConvertTo-ForwardSlash $projectDirectory }
@@ -114,9 +114,10 @@ function Invoke-EmojiScan {
 }
 
 try {
-    if ([string]$env:CLAUDE_PLUGIN_ROOT -eq '') { exit 0 }
-    . "$env:CLAUDE_PLUGIN_ROOT\hooks\lib\payload.ps1"
-    . "$env:CLAUDE_PLUGIN_ROOT\hooks\lib\config.ps1"
+    $pluginRoot = [string][System.Environment]::GetEnvironmentVariable('CLAUDE_PLUGIN_ROOT')
+    if ($pluginRoot -eq '') { exit 0 }
+    . ($pluginRoot + '/hooks/lib/payload.ps1')
+    . ($pluginRoot + '/hooks/lib/config.ps1')
     $status = Invoke-EmojiScan
 } catch {
     $status = 0

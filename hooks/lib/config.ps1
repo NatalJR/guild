@@ -2,15 +2,15 @@
 # primary implementation and the reference for every rule below).
 # Sources, later wins: <plugin root>/config/defaults.conf, ~/.claude/guild.conf,
 # <project>/.claude/guild.conf. Missing or unreadable files are skipped silently.
-# Grammar per line: blank or `#` comment ignored; otherwise `key = value`, optional spaces
-# around `=`, keys matching ^[a-z][a-z0-9_.]*$, values on|off|true|false|yes|no in any case.
+# Grammar per line: blank or `#` comment ignored; otherwise `name = value`, optional spaces
+# around `=`, names matching ^[a-z][a-z0-9_.]*$, values on|off|true|false|yes|no in any case.
 # Any other line (inline comments included) is ignored silently. The defaults file declares the
-# known keys; a key the defaults file does not declare is ignored in the user and project files
-# and reads as on. Lines are only matched against that grammar, never expanded or executed.
-# git.handling is not a conf key: a line for it is ignored in every file, the defaults file
+# known switches; a switch the defaults file does not declare is ignored in the user and project
+# files and reads as on. Lines are only matched against that grammar, never expanded or executed.
+# git.handling is not a conf switch: a line for it is ignored in every file, the defaults file
 # included. The plugin option CLAUDE_PLUGIN_OPTION_GIT_HANDLING (install prompt or /config) is
 # its only source: true|1|on|yes in any case is on, any other value is off, unset reads as off.
-# The defaults file is read from $env:CLAUDE_PLUGIN_ROOT only; when it is unset no defaults file is
+# The defaults file is read from CLAUDE_PLUGIN_ROOT only; when it is unset no defaults file is
 # read (the hooks exit before dot-sourcing this file in that case).
 # The home directory is HOME, as in the sh twin; when HOME is unset (the usual case on Windows
 # outside Git Bash) it is the user profile directory, so ~/.claude/guild.conf is still read.
@@ -24,35 +24,35 @@ $GUILD_UTF8 = New-Object System.Text.UTF8Encoding -ArgumentList $false, $false
 # [[:space:]] in the C locale.
 $GUILD_SPACE_CHARACTERS = [char[]]@(32, 9, 10, 11, 12, 13)
 
-# Fills GUILD_SWITCHES: key -> on|off, one entry per key, in declaration order.
+# Fills GUILD_SWITCHES: name -> on|off, one entry per switch, in declaration order.
 # GUILD_DEFAULTS keeps the same table as declared by the defaults file alone.
 function Import-GuildConfig {
     $GUILD_SWITCHES.Clear()
     Read-GuildDefaultsFile
     $GUILD_DEFAULTS.Clear()
-    foreach ($key in @($GUILD_SWITCHES.Keys)) { $GUILD_DEFAULTS[$key] = $GUILD_SWITCHES[$key] }
+    foreach ($name in @($GUILD_SWITCHES.Keys)) { $GUILD_DEFAULTS[$name] = $GUILD_SWITCHES[$name] }
     $userHome = Get-GuildHome
     if ($userHome -ne '') { Read-GuildConfigFile ($userHome + '/.claude/guild.conf') 'override' }
-    $projectDirectory = [string]$env:CLAUDE_PROJECT_DIR
+    $projectDirectory = Get-GuildVariable 'CLAUDE_PROJECT_DIR'
     if ($projectDirectory -ne '') { Read-GuildConfigFile ($projectDirectory + '/.claude/guild.conf') 'override' }
     Set-GuildOption
 }
 
-# True when KEY is on. A key with no entry takes its built-in default.
-function Get-GuildSwitch([string]$Key) {
-    return (Get-GuildTableValue $GUILD_SWITCHES $Key) -ceq 'on'
+# True when switch NAME is on. A switch with no entry takes its built-in default.
+function Get-GuildSwitch([string]$Name) {
+    return (Get-GuildTableValue $GUILD_SWITCHES $Name) -ceq 'on'
 }
 
-# The key=on / key=off entries whose value differs from the shipped default, sorted by key,
-# space separated; empty when every key holds its default.
-function Get-GuildChangedKeys {
-    $keys = New-Object System.Collections.Generic.List[string]
-    foreach ($key in $GUILD_SWITCHES.Keys) {
-        if ($GUILD_SWITCHES[$key] -cne (Get-GuildTableValue $GUILD_DEFAULTS $key)) { $keys.Add($key) }
+# The name=on / name=off entries whose value differs from the shipped default, sorted by name,
+# space separated; empty when every switch holds its default.
+function Get-GuildChangedSwitches {
+    $names = New-Object System.Collections.Generic.List[string]
+    foreach ($name in $GUILD_SWITCHES.Keys) {
+        if ($GUILD_SWITCHES[$name] -cne (Get-GuildTableValue $GUILD_DEFAULTS $name)) { $names.Add($name) }
     }
-    $sortKeys = $keys.ToArray()
-    [System.Array]::Sort($sortKeys, [System.StringComparer]::Ordinal)
-    return ((@($sortKeys) | ForEach-Object { $_ + '=' + $GUILD_SWITCHES[$_] }) -join ' ')
+    $sortedNames = $names.ToArray()
+    [System.Array]::Sort($sortedNames, [System.StringComparer]::Ordinal)
+    return ((@($sortedNames) | ForEach-Object { $_ + '=' + $GUILD_SWITCHES[$_] }) -join ' ')
 }
 
 # Splits TEXT the way a `while read -r line || [ -n "$line" ]` loop does: on LF only, a final
@@ -69,8 +69,13 @@ function Get-GuildTrimmed([string]$Text) {
     return $Text.Trim($GUILD_SPACE_CHARACTERS)
 }
 
+# The value of process variable NAME; empty when unset.
+function Get-GuildVariable([string]$Name) {
+    return [string][System.Environment]::GetEnvironmentVariable($Name)
+}
+
 function Get-GuildPluginRoot {
-    return [string]$env:CLAUDE_PLUGIN_ROOT
+    return Get-GuildVariable 'CLAUDE_PLUGIN_ROOT'
 }
 
 # The defaults file under the plugin root; skipped when CLAUDE_PLUGIN_ROOT is unset.
@@ -80,24 +85,24 @@ function Read-GuildDefaultsFile {
 }
 
 function Get-GuildHome {
-    $userHome = [string]$env:HOME
+    $userHome = Get-GuildVariable 'HOME'
     if ($userHome -eq '') { $userHome = [System.Environment]::GetFolderPath('UserProfile') }
     return [string]$userHome
 }
 
-# TABLE KEY: KEY's state in TABLE, else its built-in default.
-function Get-GuildTableValue($Table, [string]$Key) {
-    if ($Table.Contains($Key)) { return [string]$Table[$Key] }
-    return Get-GuildBuiltinDefault $Key
+# TABLE NAME: NAME's state in TABLE, else its built-in default.
+function Get-GuildTableValue($Table, [string]$Name) {
+    if ($Table.Contains($Name)) { return [string]$Table[$Name] }
+    return Get-GuildBuiltinDefault $Name
 }
 
-# Built-in defaults for a key no defaults file declares: git.handling is opt-in, the rest on.
-function Get-GuildBuiltinDefault([string]$Key) {
-    if ($Key -ceq 'git.handling') { return 'off' }
+# Built-in defaults for a switch no defaults file declares: git.handling is opt-in, the rest on.
+function Get-GuildBuiltinDefault([string]$Name) {
+    if ($Name -ceq 'git.handling') { return 'off' }
     return 'on'
 }
 
-# FILE MODE: applies every valid line; MODE declare accepts new keys, override only known ones.
+# FILE MODE: applies every valid line; MODE declare accepts new switches, override only known ones.
 function Read-GuildConfigFile([string]$Path, [string]$Mode) {
     if (-not [System.IO.File]::Exists($Path)) { return }
     try {
@@ -112,12 +117,12 @@ function Add-GuildConfigLine([string]$Line, [string]$Mode) {
     $text = Remove-GuildCarriageReturn $Line
     $equals = $text.IndexOf([char]'=')
     if ($equals -lt 0) { return }
-    $key = Get-GuildTrimmed $text.Substring(0, $equals)
+    $name = Get-GuildTrimmed $text.Substring(0, $equals)
     $state = ConvertTo-GuildState (Get-GuildTrimmed $text.Substring($equals + 1))
     # git.handling comes from the plugin option only.
-    if (-not (Test-GuildKey $key) -or $null -eq $state -or $key -ceq 'git.handling') { return }
-    if (-not $GUILD_SWITCHES.Contains($key) -and $Mode -cne 'declare') { return }
-    $GUILD_SWITCHES[$key] = $state
+    if (-not (Test-GuildName $name) -or $null -eq $state -or $name -ceq 'git.handling') { return }
+    if (-not $GUILD_SWITCHES.Contains($name) -and $Mode -cne 'declare') { return }
+    $GUILD_SWITCHES[$name] = $state
 }
 
 # LINE without one trailing carriage return.
@@ -128,8 +133,8 @@ function Remove-GuildCarriageReturn([string]$Line) {
     return $Line
 }
 
-function Test-GuildKey([string]$Key) {
-    return $Key -cmatch '^[a-z][a-z0-9_.]*\z'
+function Test-GuildName([string]$Name) {
+    return $Name -cmatch '^[a-z][a-z0-9_.]*\z'
 }
 
 # on, off, or $null for a value outside the grammar.

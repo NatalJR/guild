@@ -10,9 +10,10 @@ $ErrorActionPreference = 'Stop'
 $REINFORCEMENT = 'GUILD DEFAULT MODE: replies at most six lines, universal code rules, coding requests walk the operating procedure in session context (no slash command).'
 
 try {
-    if ([string]$env:CLAUDE_PLUGIN_ROOT -eq '') { exit 0 }
-    . "$env:CLAUDE_PLUGIN_ROOT\hooks\lib\config.ps1"
-    . "$env:CLAUDE_PLUGIN_ROOT\hooks\lib\payload.ps1"
+    $pluginRoot = [string][System.Environment]::GetEnvironmentVariable('CLAUDE_PLUGIN_ROOT')
+    if ($pluginRoot -eq '') { exit 0 }
+    . ($pluginRoot + '/hooks/lib/config.ps1')
+    . ($pluginRoot + '/hooks/lib/payload.ps1')
     Import-GuildConfig
     if (Get-GuildSwitch 'hooks.prompt_reinforce') { Write-HookOutput ($REINFORCEMENT + "`n") }
 } catch {

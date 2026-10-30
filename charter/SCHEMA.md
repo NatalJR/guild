@@ -16,7 +16,7 @@ The charter is `<project>/.claude/guild.md`. It has fixed H2 headings in a fixed
 - Required content: build, test, and lint commands with env vars and notes; which command is the lint gate.
 - Example lines:
   - `npm run build` - warnings are errors; this is also the lint gate.
-  - `API_URL=http://localhost:8080 npm test` - all suites.
+  - `make test` - all suites.
 
 ## Areas
 

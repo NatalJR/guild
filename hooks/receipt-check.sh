@@ -7,19 +7,23 @@ set -u
 
 RECEIPT_MARKER_PATTERN='^(plan:|verify:|verified:|docs-sync\.|No issues\.|No match\.|[0-9]+ findings\.|too-big\.|too-small\.|needs-confirm\.|ambiguous\.|regressed\.|need-map\.|blocked\.|not-security\.|security-scope\.|Defs:|Refs:|Callers:|Tests:|Sites:|Imports:)'
 LOCATION_PATTERN='^[^[:space:]]+:[0-9]+'
-# Internal status meaning "block"; any other status, including a shell error, allows.
+# Internal status meaning "block"; any other status, including a shell error, lets the stop run.
 BLOCK_STATUS=3
 
-# Succeeds when CLAUDE_PLUGIN_ROOT is set and holds the libraries this hook sources; the
-# harness always exports it for plugin hooks.
-libraries_present() {
-  [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "${CLAUDE_PLUGIN_ROOT}/hooks/lib/payload.sh" ] &&
-    [ -f "${CLAUDE_PLUGIN_ROOT}/hooks/lib/config.sh" ]
+# Loads the shared libraries from CLAUDE_PLUGIN_ROOT, which the harness always exports for
+# plugin hooks; returns 1 when it is unset or a library is missing.
+load_libraries() {
+  [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] || return 1
+  [ -f "${CLAUDE_PLUGIN_ROOT}/hooks/lib/payload.sh" ] || return 1
+  [ -f "${CLAUDE_PLUGIN_ROOT}/hooks/lib/config.sh" ] || return 1
+  . "${CLAUDE_PLUGIN_ROOT}/hooks/lib/payload.sh"
+  . "${CLAUDE_PLUGIN_ROOT}/hooks/lib/config.sh"
 }
 
+# AGENT_TYPE: succeeds for a guild:* agent, the prefix in any case. The Claude Directory
+# validator cannot read `case` statements, so the match is a `[ ]` test.
 is_guild_agent() {
-  case "$1" in [Gg][Uu][Ii][Ll][Dd]:*) return 0 ;; esac
-  return 1
+  [ "${1#[Gg][Uu][Ii][Ll][Dd]:}" != "$1" ]
 }
 
 # Scope: only guild agents carry the receipt contract, and a stop this hook already
@@ -41,9 +45,7 @@ reject() {
 }
 
 main() {
-  libraries_present || return 0
-  . "${CLAUDE_PLUGIN_ROOT}/hooks/lib/payload.sh"
-  . "${CLAUDE_PLUGIN_ROOT}/hooks/lib/config.sh"
+  load_libraries || return 0
   guild_config_load
   guild_switch hooks.receipt_check || return 0
   payload_read

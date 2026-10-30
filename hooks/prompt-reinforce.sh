@@ -4,15 +4,16 @@
 # Any internal error prints nothing and exits 0 (never blocks a prompt).
 set -u
 
-# Succeeds when CLAUDE_PLUGIN_ROOT is set and holds the library this hook sources; the
-# harness always exports it for plugin hooks.
-libraries_present() {
-  [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "${CLAUDE_PLUGIN_ROOT}/hooks/lib/config.sh" ]
+# Loads the switch library from CLAUDE_PLUGIN_ROOT, which the harness always exports for plugin
+# hooks; returns 1 when it is unset or the library is missing.
+load_libraries() {
+  [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] || return 1
+  [ -f "${CLAUDE_PLUGIN_ROOT}/hooks/lib/config.sh" ] || return 1
+  . "${CLAUDE_PLUGIN_ROOT}/hooks/lib/config.sh"
 }
 
 main() {
-  libraries_present || return 0
-  . "${CLAUDE_PLUGIN_ROOT}/hooks/lib/config.sh"
+  load_libraries || return 0
   guild_config_load
   guild_switch hooks.prompt_reinforce || return 0
   printf '%s\n' 'GUILD DEFAULT MODE: replies at most six lines, universal code rules, coding requests walk the operating procedure in session context (no slash command).'

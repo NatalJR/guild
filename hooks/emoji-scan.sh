@@ -9,24 +9,30 @@
 # check the leading bytes of each sequence, so a malformed UTF-8 sequence that starts with
 # the same bytes also counts as a hit; that slight over-match is accepted.
 # Switch: hooks.emoji_scan. A malformed payload or an internal error never blocks.
+# The Claude Directory validator cannot read `case` statements, so every match is a `[ ]` test.
 set -u
 
 # Generic binary types, tied to no project: images, fonts, archives, executables, model and
 # database files, and PDF documents.
 BINARY_EXTENSIONS=' .png .jpg .jpeg .gif .ico .onnx .sqlite .dll .exe .pdf .zip .woff .woff2 .ttf '
 EMOJI_PATTERN=$(printf '\360\237[\200-\253]|\342[\230-\236]|\342[\254-\257]|\357\270\217|\342\200\215')
-# Internal status meaning "block"; any other status, including a shell error, allows.
+# A backslash as tr reads it: tr takes two for one.
+TR_BACKSLASH=$(printf '\134\134')
+# Internal status meaning "block"; any other status, including a shell error, lets the write stand.
 BLOCK_STATUS=3
 
-# Succeeds when CLAUDE_PLUGIN_ROOT is set and holds the libraries this hook sources; the
-# harness always exports it for plugin hooks.
-libraries_present() {
-  [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "${CLAUDE_PLUGIN_ROOT}/hooks/lib/payload.sh" ] &&
-    [ -f "${CLAUDE_PLUGIN_ROOT}/hooks/lib/config.sh" ]
+# Loads the shared libraries from CLAUDE_PLUGIN_ROOT, which the harness always exports for
+# plugin hooks; returns 1 when it is unset or a library is missing.
+load_libraries() {
+  [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] || return 1
+  [ -f "${CLAUDE_PLUGIN_ROOT}/hooks/lib/payload.sh" ] || return 1
+  [ -f "${CLAUDE_PLUGIN_ROOT}/hooks/lib/config.sh" ] || return 1
+  . "${CLAUDE_PLUGIN_ROOT}/hooks/lib/payload.sh"
+  . "${CLAUDE_PLUGIN_ROOT}/hooks/lib/config.sh"
 }
 
 to_forward_slashes() {
-  printf '%s' "$1" | tr '\\' '/'
+  printf '%s' "$1" | tr "$TR_BACKSLASH" '/'
 }
 
 to_lower() {
@@ -37,13 +43,16 @@ absolute_directory() {
   (CDPATH='' cd -- "$1" 2>/dev/null && pwd)
 }
 
+# DIRECTORY: succeeds when DIRECTORY is empty or a bare drive (C:), which needs a trailing slash.
+needs_trailing_slash() {
+  [ -z "$1" ] || [ "${1%:}" != "$1" ]
+}
+
 # Forward-slash path in, absolute path out with `.` and `..` resolved through its directory.
 canonical_file_path() {
-  case "$1" in
-    */*) file_directory=${1%/*} ;;
-    *) file_directory=. ;;
-  esac
-  case "$file_directory" in '' | *:) file_directory="$file_directory/" ;; esac
+  file_directory=.
+  [ "${1#*/}" = "$1" ] || file_directory=${1%/*}
+  if needs_trailing_slash "$file_directory"; then file_directory="$file_directory/"; fi
   file_directory=$(absolute_directory "$file_directory") || return 1
   printf '%s/%s' "${file_directory%/}" "${1##*/}"
 }
@@ -56,16 +65,16 @@ is_inside_project() {
   project_root=$(to_lower "${project_root%/}/")
   candidate=$(canonical_file_path "$1") || return 1
   candidate=$(to_lower "$candidate")
-  case "$candidate" in "$project_root"*) return 0 ;; esac
-  return 1
+  relative_path=${candidate#"$project_root"}
+  [ "$relative_path" != "$candidate" ]
 }
 
 has_binary_extension() {
   file_name=${1##*/}
-  case "$file_name" in *.*) ;; *) return 1 ;; esac
+  [ "${file_name#*.}" != "$file_name" ] || return 1
   extension=$(to_lower ".${file_name##*.}")
-  case "$BINARY_EXTENSIONS" in *" $extension "*) return 0 ;; esac
-  return 1
+  extension_rest=${BINARY_EXTENSIONS#*" $extension "}
+  [ "$extension_rest" != "$BINARY_EXTENSIONS" ]
 }
 
 # PATH FORWARD_PATH: the raw payload path and its forward-slash form.
@@ -85,13 +94,12 @@ first_emoji_line() {
 scannable_payload_file() {
   payload_read
   file_path=$(payload_field file_path) || return 1
-  is_scannable "$file_path" "$(to_forward_slashes "$file_path")"
+  forward_path=$(to_forward_slashes "$file_path")
+  is_scannable "$file_path" "$forward_path"
 }
 
 main() {
-  libraries_present || return 0
-  . "${CLAUDE_PLUGIN_ROOT}/hooks/lib/payload.sh"
-  . "${CLAUDE_PLUGIN_ROOT}/hooks/lib/config.sh"
+  load_libraries || return 0
   guild_config_load
   guild_switch hooks.emoji_scan || return 0
   scannable_payload_file || return 0

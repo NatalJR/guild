@@ -1,15 +1,18 @@
 #!/bin/sh
 # Maintenance check, not a hook: every context part the SessionStart hooks inject must stay
 # under the harness cap (a hook's stdout near 10KB is replaced by a 2KB preview). Each
-# context/*.md is rendered through session-context.sh with the shipped defaults (user, project
-# and plugin option overrides cleared) and the output measured. Run after editing anything
-# under context/ or config/. Exit 1 on a violation.
+# context/*.md is rendered through the session context hook with the shipped defaults (user,
+# project and plugin option overrides cleared) and the output measured. Run after editing
+# anything under context/ or config/. Exit 1 on a violation.
 set -u
 
 LIMIT=9000
 
 # The plugin root is the parent of this script's directory unless CLAUDE_PLUGIN_ROOT is set.
-[ -n "${CLAUDE_PLUGIN_ROOT:-}" ] || CLAUDE_PLUGIN_ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd) || exit 1
+if [ -z "${CLAUDE_PLUGIN_ROOT:-}" ]; then
+  script_directory=$(dirname -- "$0")
+  CLAUDE_PLUGIN_ROOT=$(CDPATH='' cd -- "$script_directory/.." && pwd) || exit 1
+fi
 export CLAUDE_PLUGIN_ROOT
 
 rendered_size() {

@@ -135,13 +135,13 @@ This section lists the steps that connect a project to the guild.
 This section states what a machine needs to run the hooks.
 
 - **Primary runtime:** POSIX sh: dash or bash on Linux and macOS, Git Bash's sh on Windows. That is the same requirement as the Claude Code Bash tool, so any machine that runs Claude Code already has it.
-- **Nothing else:** the sh hooks use only the standard utilities that ship with that shell (`cat`, `sed`, `grep -E`, `tr`, `cut`, `head`, `sort`, `wc`, `mv`, `rm`), and no `jq`, `node` or `python`.
+- **Nothing else:** the sh hooks use only the standard utilities that ship with that shell (`cat`, `sed`, `grep -E`, `awk`, `tr`, `cut`, `head`, `sort`, `wc`, `mv`, `rm`), and no `jq`, `node` or `python`.
 
 Windows without Git Bash:
 
 - **Automatic twin:** Claude Code runs hook commands through PowerShell, and each hook entry then runs the PowerShell 7 twin of its script (`hooks/<script>.ps1`, also valid Windows PowerShell 5.1 syntax) automatically; there is nothing to configure.
 - **Same behaviour:** the twins use only PowerShell and .NET, read the same switches, and produce the same stdout, stderr and exit codes as the sh scripts; both implementations run the shared cases in `tests/cases/`.
-- **PowerShell 7 needed:** the fallback needs PowerShell 7 (`pwsh`) on PATH. The harness prefers it over Windows PowerShell, and the fallback works whichever of the two launches the hook command (PowerShell 7 or Windows PowerShell 5.1), because the command spawns `pwsh` itself to run the twin.
+- **PowerShell needed:** the fallback needs PowerShell 7 (`pwsh`), which the harness prefers whenever it is installed, or Windows PowerShell 5.1 with an execution policy that runs local scripts. The twin runs inside the PowerShell that launched the hook command.
 - **Harmless error:** on that path the first line of each hook command (`exec sh ...`) prints a harmless `exec is not recognized` error to stderr before the twin runs (see Hooks).
 
 ## Layout
@@ -285,16 +285,16 @@ Every entry is a two-line sh/PowerShell polyglot, so one `hooks.json` serves bot
 
 ```
 exec sh "${CLAUDE_PLUGIN_ROOT}/hooks/<script>.sh" [part]
-pwsh -NoProfile -File "${CLAUDE_PLUGIN_ROOT}/hooks/<script>.ps1" [part]; exit $LASTEXITCODE
+& "${CLAUDE_PLUGIN_ROOT}/hooks/<script>.ps1" [part]; exit $LASTEXITCODE
 ```
 
 How the polyglot runs:
 
 - **Shell choice:** Claude Code hands a hook command to `sh` on Linux and macOS and through Git Bash on Windows when it finds it; otherwise it uses PowerShell.
 - **Under sh:** `exec` replaces the shell with the sh script, so the second line is never read.
-- **Under PowerShell:** `exec` is not a command: the first line fails with a non-terminating error and the second line spawns `pwsh -NoProfile -File` on the PowerShell twin and exits with its status. Spawning `pwsh` (rather than invoking the script with the `&` call operator) propagates the twin's exit code whether the harness launched PowerShell 7 or Windows PowerShell 5.1, so a blocking hook still exits 2, and it names a real program with a literal plugin-root path.
+- **Under PowerShell:** `exec` is not a command: the first line fails with a non-terminating error and the second line runs the PowerShell twin with the `&` call operator and exits with its status, so a blocking hook still exits 2. The twin runs in the PowerShell that launched the command: PowerShell 7 whenever it is installed, otherwise Windows PowerShell 5.1, which needs an execution policy that runs local scripts.
 - **Twins:** the table names the sh scripts; each `.ps1` twin behaves the same.
-- **Library paths:** every hook script resolves its shared libraries through `${CLAUDE_PLUGIN_ROOT}` only (`${CLAUDE_PLUGIN_ROOT}/hooks/lib/` in sh, `$env:CLAUDE_PLUGIN_ROOT\hooks\lib\` in PowerShell), never from its own location; when the variable is unset or a library is missing, the hook prints nothing and exits 0.
+- **Library paths:** every hook script resolves its shared libraries through `${CLAUDE_PLUGIN_ROOT}` only (`${CLAUDE_PLUGIN_ROOT}/hooks/lib/` in sh, the same directory read from the process variable in PowerShell), never from its own location; when the variable is unset or a library is missing, the hook prints nothing and exits 0.
 
 Read the table by event: each row is one hook entry, with what it does, how it exits and which switch controls it.
 
