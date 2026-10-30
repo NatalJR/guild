@@ -4,18 +4,25 @@
 # One hook entry per file, because the harness caps a single hook's stdout near 10KB and
 # replaces anything larger with a 2KB preview (hooks/check-context-size.sh keeps each part
 # under 9000 bytes).
-# Rendering: a line `{{#if KEY}}` or `{{#if !KEY}}` opens a block and a line `{{/if}}` closes
-# it (no nesting); marker lines are always dropped and the block body is kept only while switch
-# KEY is on (`!KEY`: only while it is off).
-# `{{PLUGIN_ROOT}}` becomes the plugin path with forward slashes so the main thread can Read
-# DAG.md and the charter template. The always-on part gains a `## Guild switches changed`
-# section listing key=value for every switch that differs from its shipped default; the procedure
-# part prints nothing when procedure.default_mode is off.
+# Rendering: a line of two opening braces, hash, if, space, KEY, two closing braces (KEY may
+# carry a leading `!`) opens a block, and a line of two opening braces, slash, if, two closing
+# braces closes it (no nesting); marker lines are always dropped and the block body is kept only
+# while switch KEY is on (`!KEY`: only while it is off).
+# PLUGIN_ROOT wrapped in two opening and two closing braces becomes the plugin path with forward
+# slashes so the main thread can Read DAG.md and the charter template. The always-on part gains
+# a `## Guild switches changed` section listing key=value for every switch that differs from its
+# shipped default; the procedure part prints nothing when procedure.default_mode is off.
 # Missing file or any internal error prints nothing and exits 0 (never blocks a session).
 set -u
 
 CR=$(printf '\r')
 BACKSLASH=$(printf '\134')
+LB=$(printf '\173')
+RB=$(printf '\175')
+OPEN_MARK="$LB$LB#if "
+CLOSE_MARK="$LB$LB/if$RB$RB"
+END_MARK="$RB$RB"
+ROOT_MARK="$LB${LB}PLUGIN_ROOT$RB$RB"
 
 # Succeeds when CLAUDE_PLUGIN_ROOT is set and holds the library this hook sources; the
 # harness always exports it for plugin hooks.
@@ -39,10 +46,10 @@ replace_all() {
   REPLACED="$REPLACED$replace_rest"
 }
 
-# Sets keep for a `{{#if KEY}}` or `{{#if !KEY}}` marker line.
+# Sets keep for an opening marker line (KEY or !KEY).
 open_block() {
-  block_key=${1#'{{#if '}
-  block_key=${block_key%'}}'}
+  block_key=${1#"$OPEN_MARK"}
+  block_key=${block_key%"$END_MARK"}
   block_wanted=on
   case "$block_key" in '!'*) block_key=${block_key#'!'}; block_wanted=off ;; esac
   if guild_switch "$block_key"; then block_state=on; else block_state=off; fi
@@ -50,8 +57,8 @@ open_block() {
 }
 
 emit_line() {
-  if contains "$1" '{{PLUGIN_ROOT}}'; then
-    replace_all "$1" '{{PLUGIN_ROOT}}' "$ROOT_FORWARD"
+  if contains "$1" "$ROOT_MARK"; then
+    replace_all "$1" "$ROOT_MARK" "$ROOT_FORWARD"
     printf '%s\n' "$REPLACED"
   else
     printf '%s\n' "$1"
@@ -61,8 +68,8 @@ emit_line() {
 render_line() {
   marker=${1%"$CR"}
   case "$marker" in
-    '{{/if}}') keep=yes ;;
-    '{{#if '*'}}') open_block "$marker" ;;
+    "$CLOSE_MARK") keep=yes ;;
+    "$OPEN_MARK"*"$END_MARK") open_block "$marker" ;;
     *) [ "$keep" = no ] || emit_line "$1" ;;
   esac
 }
