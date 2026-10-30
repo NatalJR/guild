@@ -9,8 +9,8 @@
 # git.handling is not a conf key: a line for it is ignored in every file, the defaults file
 # included. The plugin option CLAUDE_PLUGIN_OPTION_GIT_HANDLING (install prompt or /config) is
 # its only source: true|1|on|yes in any case is on, any other value is off, unset reads as off.
-# When CLAUDE_PLUGIN_ROOT is unset the root is derived from the sourcing script ($0), which
-# sits one level below the plugin root (hooks/*.sh; the test runner in tests/ likewise).
+# The defaults file is read from ${CLAUDE_PLUGIN_ROOT} only; when it is unset no defaults file is
+# read (the hooks exit before sourcing this file in that case).
 set -u
 
 GUILD_SWITCHES=''
@@ -18,16 +18,12 @@ GUILD_DEFAULTS=''
 _GUILD_NL='
 '
 _GUILD_CR=$(printf '\r')
-case "$0" in
-  */*) _GUILD_SCRIPT_DIR=${0%/*} ;;
-  *) _GUILD_SCRIPT_DIR=. ;;
-esac
 
 # Builds GUILD_SWITCHES: newline-separated key=on / key=off entries, one per key.
 # GUILD_DEFAULTS keeps the same table as declared by the defaults file alone.
 guild_config_load() {
   GUILD_SWITCHES=''
-  _guild_config_read "${CLAUDE_PLUGIN_ROOT:-$_GUILD_SCRIPT_DIR/..}/config/defaults.conf" declare
+  [ -z "${CLAUDE_PLUGIN_ROOT:-}" ] || _guild_config_read "${CLAUDE_PLUGIN_ROOT}/config/defaults.conf" declare
   GUILD_DEFAULTS=$GUILD_SWITCHES
   [ -z "${HOME:-}" ] || _guild_config_read "$HOME/.claude/guild.conf" override
   [ -z "${CLAUDE_PROJECT_DIR:-}" ] || _guild_config_read "$CLAUDE_PROJECT_DIR/.claude/guild.conf" override

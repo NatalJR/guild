@@ -118,9 +118,9 @@ function Get-RenderedAgent([string]$Directory, [string]$Agent) {
 }
 
 try {
-    . "$PSScriptRoot/lib/payload.ps1"
     $root = [string]$env:CLAUDE_PLUGIN_ROOT
     if ($root -eq '') { exit 0 }
+    . "$env:CLAUDE_PLUGIN_ROOT\hooks\lib\payload.ps1"
     $directory = Join-Path $root 'agents'
     $rendered = @(@(foreach ($agent in $AGENTS) { Get-RenderedAgent $directory $agent }) | Where-Object { $_ -ne '' })
     if ($rendered.Count -gt 0) {

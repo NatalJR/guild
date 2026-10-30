@@ -5,15 +5,17 @@
 # A malformed payload or an internal error never blocks.
 set -u
 
-RECEIPT_TOKEN_PATTERN='^(plan:|verify:|verified:|docs-sync\.|No issues\.|No match\.|[0-9]+ findings\.|too-big\.|too-small\.|needs-confirm\.|ambiguous\.|regressed\.|need-map\.|blocked\.|not-security\.|security-scope\.|Defs:|Refs:|Callers:|Tests:|Sites:|Imports:)'
+RECEIPT_MARKER_PATTERN='^(plan:|verify:|verified:|docs-sync\.|No issues\.|No match\.|[0-9]+ findings\.|too-big\.|too-small\.|needs-confirm\.|ambiguous\.|regressed\.|need-map\.|blocked\.|not-security\.|security-scope\.|Defs:|Refs:|Callers:|Tests:|Sites:|Imports:)'
 LOCATION_PATTERN='^[^[:space:]]+:[0-9]+'
 # Internal status meaning "block"; any other status, including a shell error, allows.
 BLOCK_STATUS=3
 
-case "$0" in
-  */*) hooks_dir=${0%/*} ;;
-  *) hooks_dir=. ;;
-esac
+# Succeeds when CLAUDE_PLUGIN_ROOT is set and holds the libraries this hook sources; the
+# harness always exports it for plugin hooks.
+libraries_present() {
+  [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "${CLAUDE_PLUGIN_ROOT}/hooks/lib/payload.sh" ] &&
+    [ -f "${CLAUDE_PLUGIN_ROOT}/hooks/lib/config.sh" ]
+}
 
 is_guild_agent() {
   case "$1" in [Gg][Uu][Ii][Ll][Dd]:*) return 0 ;; esac
@@ -28,7 +30,7 @@ in_scope() {
 }
 
 is_receipt_line() {
-  printf '%s\n' "$1" | LC_ALL=C grep -q -i -E -e "$RECEIPT_TOKEN_PATTERN" && return 0
+  printf '%s\n' "$1" | LC_ALL=C grep -q -i -E -e "$RECEIPT_MARKER_PATTERN" && return 0
   printf '%s\n' "$1" | LC_ALL=C grep -q -E -e "$LOCATION_PATTERN"
 }
 
@@ -39,8 +41,9 @@ reject() {
 }
 
 main() {
-  . "$hooks_dir/lib/payload.sh"
-  . "$hooks_dir/lib/config.sh"
+  libraries_present || return 0
+  . "${CLAUDE_PLUGIN_ROOT}/hooks/lib/payload.sh"
+  . "${CLAUDE_PLUGIN_ROOT}/hooks/lib/config.sh"
   guild_config_load
   guild_switch hooks.receipt_check || return 0
   payload_read

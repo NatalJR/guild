@@ -18,10 +18,12 @@ EMOJI_PATTERN=$(printf '\360\237[\200-\253]|\342[\230-\236]|\342[\254-\257]|\357
 # Internal status meaning "block"; any other status, including a shell error, allows.
 BLOCK_STATUS=3
 
-case "$0" in
-  */*) hooks_dir=${0%/*} ;;
-  *) hooks_dir=. ;;
-esac
+# Succeeds when CLAUDE_PLUGIN_ROOT is set and holds the libraries this hook sources; the
+# harness always exports it for plugin hooks.
+libraries_present() {
+  [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "${CLAUDE_PLUGIN_ROOT}/hooks/lib/payload.sh" ] &&
+    [ -f "${CLAUDE_PLUGIN_ROOT}/hooks/lib/config.sh" ]
+}
 
 to_forward_slashes() {
   printf '%s' "$1" | tr '\\' '/'
@@ -87,8 +89,9 @@ scannable_payload_file() {
 }
 
 main() {
-  . "$hooks_dir/lib/payload.sh"
-  . "$hooks_dir/lib/config.sh"
+  libraries_present || return 0
+  . "${CLAUDE_PLUGIN_ROOT}/hooks/lib/payload.sh"
+  . "${CLAUDE_PLUGIN_ROOT}/hooks/lib/config.sh"
   guild_config_load
   guild_switch hooks.emoji_scan || return 0
   scannable_payload_file || return 0

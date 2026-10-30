@@ -17,20 +17,22 @@ GIT_ARTIFACT_PATTERN='git[[:space:]]+commit|gh[[:space:]]+pr[[:space:]]+(create|
 ATTRIBUTION_PATTERN='Co-Authored-By|Generated with|Claude Code|Anthropic|noreply@anthropic\.com'
 # The rest of a git subcommand up to the next shell operator, then the end of a standalone token.
 SEGMENT='([[:space:]][^;&|]*)?[[:space:]]'
-TOKEN_END='([[:space:];&|)]|$)'
+FLAG_BOUNDARY='([[:space:];&|)]|$)'
 # git push -n is --dry-run, not a hook bypass, so -n counts on git commit only.
-NO_VERIFY_PATTERN="git[[:space:]]+commit$SEGMENT(--no-verify|-n)$TOKEN_END|git[[:space:]]+push$SEGMENT--no-verify$TOKEN_END"
-FORCE_PUSH_PATTERN="git[[:space:]]+push$SEGMENT(--force|-f)$TOKEN_END"
+NO_VERIFY_PATTERN="git[[:space:]]+commit$SEGMENT(--no-verify|-n)$FLAG_BOUNDARY|git[[:space:]]+push$SEGMENT--no-verify$FLAG_BOUNDARY"
+FORCE_PUSH_PATTERN="git[[:space:]]+push$SEGMENT(--force|-f)$FLAG_BOUNDARY"
 ATTRIBUTION_MESSAGE='BLOCKED: AI attribution in a git artifact is forbidden. Remove the trailer/footer and retry.'
 NO_VERIFY_MESSAGE='BLOCKED: hook bypass (--no-verify) is forbidden. Fix the failing hook instead.'
 FORCE_PUSH_MESSAGE='BLOCKED: forced push is forbidden. Use --force-with-lease only inside the PR update sequence.'
 # Internal status meaning "block"; any other status, including a shell error, allows.
 BLOCK_STATUS=3
 
-case "$0" in
-  */*) hooks_dir=${0%/*} ;;
-  *) hooks_dir=. ;;
-esac
+# Succeeds when CLAUDE_PLUGIN_ROOT is set and holds the libraries this hook sources; the
+# harness always exports it for plugin hooks.
+libraries_present() {
+  [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "${CLAUDE_PLUGIN_ROOT}/hooks/lib/payload.sh" ] &&
+    [ -f "${CLAUDE_PLUGIN_ROOT}/hooks/lib/config.sh" ]
+}
 
 # TEXT PATTERN: case-insensitive ERE match anywhere in TEXT.
 matches() {
@@ -58,19 +60,20 @@ unquoted() {
 # Prints the block message for the first rule COMMAND breaks; prints nothing otherwise.
 violation_of() {
   command_folded=$(folded "$1")
-  command_tokens=$(unquoted "$(segmented "$1")")
+  command_words=$(unquoted "$(segmented "$1")")
   if matches "$command_folded" "$GIT_ARTIFACT_PATTERN" && matches "$command_folded" "$ATTRIBUTION_PATTERN"; then
     printf '%s\n' "$ATTRIBUTION_MESSAGE"
-  elif matches "$command_tokens" "$NO_VERIFY_PATTERN"; then
+  elif matches "$command_words" "$NO_VERIFY_PATTERN"; then
     printf '%s\n' "$NO_VERIFY_MESSAGE"
-  elif matches "$command_tokens" "$FORCE_PUSH_PATTERN"; then
+  elif matches "$command_words" "$FORCE_PUSH_PATTERN"; then
     printf '%s\n' "$FORCE_PUSH_MESSAGE"
   fi
 }
 
 main() {
-  . "$hooks_dir/lib/payload.sh"
-  . "$hooks_dir/lib/config.sh"
+  libraries_present || return 0
+  . "${CLAUDE_PLUGIN_ROOT}/hooks/lib/payload.sh"
+  . "${CLAUDE_PLUGIN_ROOT}/hooks/lib/config.sh"
   guild_config_load
   guild_switch git.handling || return 0
   payload_read

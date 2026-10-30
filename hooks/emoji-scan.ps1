@@ -114,8 +114,9 @@ function Invoke-EmojiScan {
 }
 
 try {
-    . "$PSScriptRoot/lib/payload.ps1"
-    . "$PSScriptRoot/lib/config.ps1"
+    if ([string]$env:CLAUDE_PLUGIN_ROOT -eq '') { exit 0 }
+    . "$env:CLAUDE_PLUGIN_ROOT\hooks\lib\payload.ps1"
+    . "$env:CLAUDE_PLUGIN_ROOT\hooks\lib\config.ps1"
     $status = Invoke-EmojiScan
 } catch {
     $status = 0

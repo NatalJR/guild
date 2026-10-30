@@ -79,8 +79,9 @@ function Get-SessionContext([string]$Part) {
 }
 
 try {
-    . "$PSScriptRoot/lib/config.ps1"
-    . "$PSScriptRoot/lib/payload.ps1"
+    if ([string]$env:CLAUDE_PLUGIN_ROOT -eq '') { exit 0 }
+    . "$env:CLAUDE_PLUGIN_ROOT\hooks\lib\config.ps1"
+    . "$env:CLAUDE_PLUGIN_ROOT\hooks\lib\payload.ps1"
     $part = ''
     if ($args.Count -gt 0) { $part = [string]$args[0] }
     Write-HookOutput (Get-SessionContext $part)

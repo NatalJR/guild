@@ -23,10 +23,10 @@ $GIT_ARTIFACT_PATTERN = "git$SPACE+commit|gh$SPACE+pr$SPACE+(create|edit)"
 $ATTRIBUTION_PATTERN = 'co-authored-by|generated with|claude code|anthropic|noreply@anthropic\.com'
 # The rest of a git subcommand up to the next shell operator, then the end of a standalone token.
 $SEGMENT = "($SPACE[^;&|]*)?$SPACE"
-$TOKEN_END = '([ \t\n\v\f\r;&|)]|$)'
+$FLAG_BOUNDARY = '([ \t\n\v\f\r;&|)]|$)'
 # git push -n is --dry-run, not a hook bypass, so -n counts on git commit only.
-$NO_VERIFY_PATTERN = "git$SPACE+commit$SEGMENT(--no-verify|-n)$TOKEN_END|git$SPACE+push$SEGMENT--no-verify$TOKEN_END"
-$FORCE_PUSH_PATTERN = "git$SPACE+push$SEGMENT(--force|-f)$TOKEN_END"
+$NO_VERIFY_PATTERN = "git$SPACE+commit$SEGMENT(--no-verify|-n)$FLAG_BOUNDARY|git$SPACE+push$SEGMENT--no-verify$FLAG_BOUNDARY"
+$FORCE_PUSH_PATTERN = "git$SPACE+push$SEGMENT(--force|-f)$FLAG_BOUNDARY"
 $ATTRIBUTION_MESSAGE = 'BLOCKED: AI attribution in a git artifact is forbidden. Remove the trailer/footer and retry.'
 $NO_VERIFY_MESSAGE = 'BLOCKED: hook bypass (--no-verify) is forbidden. Fix the failing hook instead.'
 $FORCE_PUSH_MESSAGE = 'BLOCKED: forced push is forbidden. Use --force-with-lease only inside the PR update sequence.'
@@ -59,12 +59,12 @@ function Get-Unquoted([string]$Text) {
 # The block message for the first rule COMMAND breaks; empty otherwise.
 function Get-Violation([string]$Command) {
     $folded = Get-Folded $Command
-    $tokens = Get-Unquoted (Get-Segmented $Command)
+    $words = Get-Unquoted (Get-Segmented $Command)
     if ((Test-Match $folded $GIT_ARTIFACT_PATTERN) -and (Test-Match $folded $ATTRIBUTION_PATTERN)) {
         return $ATTRIBUTION_MESSAGE
     }
-    if (Test-Match $tokens $NO_VERIFY_PATTERN) { return $NO_VERIFY_MESSAGE }
-    if (Test-Match $tokens $FORCE_PUSH_PATTERN) { return $FORCE_PUSH_MESSAGE }
+    if (Test-Match $words $NO_VERIFY_PATTERN) { return $NO_VERIFY_MESSAGE }
+    if (Test-Match $words $FORCE_PUSH_PATTERN) { return $FORCE_PUSH_MESSAGE }
     return ''
 }
 
@@ -81,8 +81,9 @@ function Invoke-GitGuard {
 }
 
 try {
-    . "$PSScriptRoot/lib/payload.ps1"
-    . "$PSScriptRoot/lib/config.ps1"
+    if ([string]$env:CLAUDE_PLUGIN_ROOT -eq '') { exit 0 }
+    . "$env:CLAUDE_PLUGIN_ROOT\hooks\lib\payload.ps1"
+    . "$env:CLAUDE_PLUGIN_ROOT\hooks\lib\config.ps1"
     $status = Invoke-GitGuard
 } catch {
     $status = 0

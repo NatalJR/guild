@@ -1,4 +1,4 @@
-<p align="center"><img src=".claude-plugin/icon.png" width="128" alt="guild icon"></p>
+<p align="center"><img src="https://raw.githubusercontent.com/NatalJR/guild/main/.claude-plugin/icon.png" width="128" alt="guild icon"></p>
 
 # guild
 
@@ -294,6 +294,7 @@ How the polyglot runs:
 - **Under sh:** `exec` replaces the shell with the sh script, so the second line is never read.
 - **Under PowerShell:** `exec` is not a command: the first line fails with a non-terminating error and the second line runs the PowerShell twin and exits with its status.
 - **Twins:** the table names the sh scripts; each `.ps1` twin behaves the same.
+- **Library paths:** every hook script resolves its shared libraries through `${CLAUDE_PLUGIN_ROOT}` only (`${CLAUDE_PLUGIN_ROOT}/hooks/lib/` in sh, `$env:CLAUDE_PLUGIN_ROOT\hooks\lib\` in PowerShell), never from its own location; when the variable is unset or a library is missing, the hook prints nothing and exits 0.
 
 Read the table by event: each row is one hook entry, with what it does, how it exits and which switch controls it.
 

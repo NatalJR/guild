@@ -11,7 +11,9 @@
 # temporary guild.conf into a scratch HOME or project directory (never into the fixtures) or
 # export CLAUDE_PLUGIN_OPTION_GIT_HANDLING; reset_env clears both. render-agents cases run
 # against a scratch copy of agents/ (CLAUDE_PLUGIN_ROOT pointed at it), never the repository's
-# files; reset_env also clears every CLAUDE_PLUGIN_OPTION_<AGENT>_MODEL / _EFFORT.
+# files; reset_env also clears every CLAUDE_PLUGIN_OPTION_<AGENT>_MODEL / _EFFORT. The hooks
+# source their libraries from ${CLAUDE_PLUGIN_ROOT}/hooks/lib only, so every scratch root a hook
+# runs against also holds a copy of hooks/lib/.
 set -u
 
 case "$0" in
@@ -225,7 +227,7 @@ apply_agents_copy() {
     *) printf 'agents-copy= takes yes, got [%s]' "$CASE_AGENTS_COPY"; return 1 ;;
   esac
   case_scratch_dir agents
-  cp -R "$REPO_ROOT/agents" "$CASE_DIR/agents" && CLAUDE_PLUGIN_ROOT=$CASE_DIR
+  cp -R "$REPO_ROOT/agents" "$CASE_DIR/agents" && copy_hook_libraries "$CASE_DIR" && CLAUDE_PLUGIN_ROOT=$CASE_DIR
 }
 
 # MODE LINES: applies each newline-terminated NAME=value (MODE set) or NAME (MODE unset).
@@ -319,6 +321,11 @@ use_project_conf() {
   CLAUDE_PROJECT_DIR=$SCRATCH_DIR
 }
 
+# ROOT: copies hooks/lib/ into the scratch plugin root ROOT, where the hooks source it from.
+copy_hook_libraries() {
+  mkdir -p "$1/hooks" && cp -R "$REPO_ROOT/hooks/lib" "$1/hooks/lib"
+}
+
 reset_env() {
   CLAUDE_PLUGIN_ROOT=$REPO_ROOT
   CLAUDE_PROJECT_DIR=$FIXTURE_PROJECT
@@ -332,6 +339,7 @@ reset_env() {
 use_agents_root() {
   new_scratch_dir
   cp -R "$REPO_ROOT/agents" "$SCRATCH_DIR/agents"
+  copy_hook_libraries "$SCRATCH_DIR"
   CLAUDE_PLUGIN_ROOT=$SCRATCH_DIR
 }
 
@@ -597,10 +605,10 @@ expect_equal 'on' "$(switch_state git.handling)"
 describe 'config: missing defaults file, plugin option true reports git.handling=on'
 expect_equal 'git.handling=on' "$(config_query guild_changed_keys)"
 reset_env
-describe 'config: unset CLAUDE_PLUGIN_ROOT derives the root from the sourcing script'
+describe 'config: unset CLAUDE_PLUGIN_ROOT reads no defaults file'
 use_user_conf 'review.security = off'
 unset CLAUDE_PLUGIN_ROOT
-expect_equal 'review.security=off' "$(config_query guild_changed_keys)"
+expect_equal '' "$(config_query guild_changed_keys)"
 reset_env
 
 # VALUE WANT: git.handling state with the plugin option set to VALUE and no conf file.
@@ -674,6 +682,7 @@ use_marker_root() {
   new_scratch_dir
   mkdir -p "$SCRATCH_DIR/config" "$SCRATCH_DIR/context"
   cp "$REPO_ROOT/config/defaults.conf" "$SCRATCH_DIR/config/defaults.conf"
+  copy_hook_libraries "$SCRATCH_DIR"
   printf '%s\n' head '{{#if review.security}}' plain '{{/if}}' '{{#if !review.security}}' negated '{{/if}}' tail >"$SCRATCH_DIR/context/markers.md"
   CLAUDE_PLUGIN_ROOT=$SCRATCH_DIR
 }

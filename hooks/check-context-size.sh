@@ -8,18 +8,14 @@ set -u
 
 LIMIT=9000
 
-case "$0" in
-  */*) hooks_dir=${0%/*} ;;
-  *) hooks_dir=. ;;
-esac
-plugin_root=$(CDPATH='' cd -- "$hooks_dir/.." && pwd) || exit 1
+# The plugin root is the parent of this script's directory unless CLAUDE_PLUGIN_ROOT is set.
+[ -n "${CLAUDE_PLUGIN_ROOT:-}" ] || CLAUDE_PLUGIN_ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd) || exit 1
+export CLAUDE_PLUGIN_ROOT
 
 rendered_size() {
   (
     unset HOME CLAUDE_PROJECT_DIR CLAUDE_PLUGIN_OPTION_GIT_HANDLING
-    CLAUDE_PLUGIN_ROOT=$plugin_root
-    export CLAUDE_PLUGIN_ROOT
-    sh "$plugin_root/hooks/session-context.sh" "context/$1"
+    sh "${CLAUDE_PLUGIN_ROOT}/hooks/session-context.sh" "context/$1"
   ) | wc -c
 }
 
@@ -33,7 +29,7 @@ report() {
 }
 
 failed=0
-for part_file in "$plugin_root"/context/*.md; do
+for part_file in "${CLAUDE_PLUGIN_ROOT}"/context/*.md; do
   [ -f "$part_file" ] || continue
   report "${part_file##*/}" || failed=1
 done

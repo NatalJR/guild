@@ -10,7 +10,9 @@
 # exercises the unset path. check-context-size.sh has no twin and stays in tests/run.sh only.
 # render-agents cases run against a scratch copy of agents/ (CLAUDE_PLUGIN_ROOT pointed at it),
 # never the repository's files; Reset-Environment also clears every
-# CLAUDE_PLUGIN_OPTION_<AGENT>_MODEL / _EFFORT.
+# CLAUDE_PLUGIN_OPTION_<AGENT>_MODEL / _EFFORT. The hooks dot-source their libraries from
+# $env:CLAUDE_PLUGIN_ROOT\hooks\lib only, so every scratch root a hook runs against also holds a
+# copy of hooks/lib/.
 Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
 
@@ -338,10 +340,17 @@ function Clear-AgentOptions {
     }
 }
 
+# ROOT: copies hooks/lib/ into the scratch plugin root ROOT, where the hooks dot-source it from.
+function Copy-HookLibraries([string]$Root) {
+    [void][System.IO.Directory]::CreateDirectory((Join-Path $Root 'hooks'))
+    Copy-Item -LiteralPath (Join-Path $Hooks 'lib') -Destination (Join-Path $Root 'hooks/lib') -Recurse
+}
+
 # Points CLAUDE_PLUGIN_ROOT at a scratch root holding a copy of agents/; returns the root.
 function Use-AgentsRoot {
     $directory = New-ScratchDirectory
     Copy-Item -LiteralPath (Join-Path $RepoRoot 'agents') -Destination (Join-Path $directory 'agents') -Recurse
+    Copy-HookLibraries $directory
     $env:CLAUDE_PLUGIN_ROOT = $directory
     return $directory
 }
@@ -618,10 +627,10 @@ try {
     Set-Case 'config: missing defaults file, plugin option true reports git.handling=on'
     Assert-Equal 'git.handling=on' (Get-ChangedKeys)
     Reset-Environment
-    Set-Case 'config: unset CLAUDE_PLUGIN_ROOT derives the root from the library location'
+    Set-Case 'config: unset CLAUDE_PLUGIN_ROOT reads no defaults file'
     Use-UserConf 'review.security = off'
     [System.Environment]::SetEnvironmentVariable('CLAUDE_PLUGIN_ROOT', [NullString]::Value)
-    Assert-Equal 'review.security=off' (Get-ChangedKeys)
+    Assert-Equal '' (Get-ChangedKeys)
     Reset-Environment
 
     foreach ($optionCase in @(@('true', 'on'), @('TRUE', 'on'), @('1', 'on'), @('On', 'on'), @('yes', 'on'), @('false', 'off'), @('0', 'off'), @('', 'off'), @('maybe', 'off'))) {
@@ -680,6 +689,7 @@ try {
     [void][System.IO.Directory]::CreateDirectory((Join-Path $markerRoot 'config'))
     [void][System.IO.Directory]::CreateDirectory((Join-Path $markerRoot 'context'))
     Copy-Item -LiteralPath (Join-Path $RepoRoot 'config/defaults.conf') -Destination (Join-Path $markerRoot 'config/defaults.conf')
+    Copy-HookLibraries $markerRoot
     $markers = (@('head', '{{#if review.security}}', 'plain', '{{/if}}', '{{#if !review.security}}', 'negated', '{{/if}}', 'tail') -join $NL) + $NL
     [System.IO.File]::WriteAllBytes((Join-Path $markerRoot 'context/markers.md'), $Utf8.GetBytes($markers))
     Set-Case 'session-context: negated block dropped while its switch is on'

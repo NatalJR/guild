@@ -14,11 +14,13 @@
 # Missing file or any internal error prints nothing and exits 0 (never blocks a session).
 set -u
 
-case "$0" in
-  */*) hooks_dir=${0%/*} ;;
-  *) hooks_dir=. ;;
-esac
 CR=$(printf '\r')
+
+# Succeeds when CLAUDE_PLUGIN_ROOT is set and holds the library this hook sources; the
+# harness always exports it for plugin hooks.
+libraries_present() {
+  [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "${CLAUDE_PLUGIN_ROOT}/hooks/lib/config.sh" ]
+}
 
 contains() {
   case "$1" in *"$2"*) return 0 ;; esac
@@ -34,14 +36,6 @@ replace_all() {
     replace_rest=${replace_rest#*"$2"}
   done
   REPLACED="$REPLACED$replace_rest"
-}
-
-plugin_root() {
-  if [ -n "${CLAUDE_PLUGIN_ROOT:-}" ]; then
-    printf '%s' "$CLAUDE_PLUGIN_ROOT"
-  else
-    (CDPATH='' cd -- "$hooks_dir/.." && pwd)
-  fi
 }
 
 # Sets keep for a `{{#if KEY}}` or `{{#if !KEY}}` marker line.
@@ -92,10 +86,11 @@ is_suppressed() {
 
 main() {
   part=${1:-context/always-on.md}
-  . "$hooks_dir/lib/config.sh"
+  libraries_present || return 0
+  . "${CLAUDE_PLUGIN_ROOT}/hooks/lib/config.sh"
   guild_config_load
   ! is_suppressed "$part" || return 0
-  root=$(plugin_root) || return 0
+  root=${CLAUDE_PLUGIN_ROOT}
   [ -f "$root/$part" ] && [ -r "$root/$part" ] || return 0
   replace_all "$root" '\' '/'
   ROOT_FORWARD=$REPLACED

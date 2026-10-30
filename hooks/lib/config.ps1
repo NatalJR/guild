@@ -10,7 +10,8 @@
 # git.handling is not a conf key: a line for it is ignored in every file, the defaults file
 # included. The plugin option CLAUDE_PLUGIN_OPTION_GIT_HANDLING (install prompt or /config) is
 # its only source: true|1|on|yes in any case is on, any other value is off, unset reads as off.
-# When CLAUDE_PLUGIN_ROOT is unset the root is the directory two levels above this file.
+# The defaults file is read from $env:CLAUDE_PLUGIN_ROOT only; when it is unset no defaults file is
+# read (the hooks exit before dot-sourcing this file in that case).
 # The home directory is HOME, as in the sh twin; when HOME is unset (the usual case on Windows
 # outside Git Bash) it is the user profile directory, so ~/.claude/guild.conf is still read.
 # Every comparison is ordinal and every case fold is ASCII-only, as in the C locale.
@@ -19,7 +20,6 @@ Set-StrictMode -Version 2.0
 
 $GUILD_SWITCHES = New-Object System.Collections.Specialized.OrderedDictionary -ArgumentList ([System.StringComparer]::Ordinal)
 $GUILD_DEFAULTS = New-Object System.Collections.Specialized.OrderedDictionary -ArgumentList ([System.StringComparer]::Ordinal)
-$GUILD_FALLBACK_ROOT = [System.IO.Path]::GetFullPath($PSScriptRoot + '/../..')
 $GUILD_UTF8 = New-Object System.Text.UTF8Encoding -ArgumentList $false, $false
 # [[:space:]] in the C locale.
 $GUILD_SPACE_CHARACTERS = [char[]]@(32, 9, 10, 11, 12, 13)
@@ -28,7 +28,7 @@ $GUILD_SPACE_CHARACTERS = [char[]]@(32, 9, 10, 11, 12, 13)
 # GUILD_DEFAULTS keeps the same table as declared by the defaults file alone.
 function Import-GuildConfig {
     $GUILD_SWITCHES.Clear()
-    Read-GuildConfigFile ((Get-GuildPluginRoot) + '/config/defaults.conf') 'declare'
+    Read-GuildDefaultsFile
     $GUILD_DEFAULTS.Clear()
     foreach ($key in @($GUILD_SWITCHES.Keys)) { $GUILD_DEFAULTS[$key] = $GUILD_SWITCHES[$key] }
     $userHome = Get-GuildHome
@@ -70,9 +70,13 @@ function Get-GuildTrimmed([string]$Text) {
 }
 
 function Get-GuildPluginRoot {
-    $root = [string]$env:CLAUDE_PLUGIN_ROOT
-    if ($root -eq '') { $root = $GUILD_FALLBACK_ROOT }
-    return $root
+    return [string]$env:CLAUDE_PLUGIN_ROOT
+}
+
+# The defaults file under the plugin root; skipped when CLAUDE_PLUGIN_ROOT is unset.
+function Read-GuildDefaultsFile {
+    $pluginRoot = Get-GuildPluginRoot
+    if ($pluginRoot -ne '') { Read-GuildConfigFile ($pluginRoot + '/config/defaults.conf') 'declare' }
 }
 
 function Get-GuildHome {

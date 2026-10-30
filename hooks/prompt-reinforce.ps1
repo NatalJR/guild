@@ -10,8 +10,9 @@ $ErrorActionPreference = 'Stop'
 $REINFORCEMENT = 'GUILD DEFAULT MODE: replies at most six lines, universal code rules, coding requests walk the operating procedure in session context (no slash command).'
 
 try {
-    . "$PSScriptRoot/lib/config.ps1"
-    . "$PSScriptRoot/lib/payload.ps1"
+    if ([string]$env:CLAUDE_PLUGIN_ROOT -eq '') { exit 0 }
+    . "$env:CLAUDE_PLUGIN_ROOT\hooks\lib\config.ps1"
+    . "$env:CLAUDE_PLUGIN_ROOT\hooks\lib\payload.ps1"
     Import-GuildConfig
     if (Get-GuildSwitch 'hooks.prompt_reinforce') { Write-HookOutput ($REINFORCEMENT + "`n") }
 } catch {

@@ -13,6 +13,7 @@
 #     project-conf=<line> +   one line of <project>/.claude/guild.conf, CLAUDE_PROJECT_DIR pointed
 #                             at a scratch dir that also holds a copy of fixtures/project/emoji.md
 #     agents-copy=yes         CLAUDE_PLUGIN_ROOT pointed at a scratch dir holding a copy of agents/
+#                             and of hooks/lib/ (the hooks source their libraries from the root)
 #     env=<NAME>=<value> +    set for this case
 #     unset=<NAME> +          removed from the environment for this case
 #     payload=<json>          stdin, sent without a trailing newline; empty when absent
@@ -228,11 +229,21 @@ part=context/missing.md
 exit=0
 stdout-equals=
 
-case=session-context: unset CLAUDE_PLUGIN_ROOT derives the root
+case=session-context: unset CLAUDE_PLUGIN_ROOT prints nothing and exits 0
 hook=session-context
 part=context/procedure.md
 unset=CLAUDE_PLUGIN_ROOT
-stdout=/skills/guild/DAG.md
+exit=0
+stdout-equals=
+stderr-equals=
+
+case=session-context: libraries missing under CLAUDE_PLUGIN_ROOT prints nothing and exits 0
+hook=session-context
+part=context/procedure.md
+env=CLAUDE_PLUGIN_ROOT=/nonexistent/guild-plugin-root
+exit=0
+stdout-equals=
+stderr-equals=
 
 case=session-context: Step 6 routes commits through the project git skill by default
 hook=session-context
