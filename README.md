@@ -24,7 +24,7 @@ Then copy `charter/TEMPLATE.md` from the plugin into your project as `.claude/gu
 
 Every switch is on by default, and a later file wins:
 
-- `config/defaults.conf` inside the plugin: the shipped switches and their names.
+- `config/defaults.conf` inside the plugin: the shipped switches and their names. In the release build the shipped defaults are compiled into each hook at build time; this file ships as their readable copy and is not read at run time.
 - `~/.claude/guild.conf`: your personal overrides.
 - `.claude/guild.conf` in a project: overrides for that project.
 - Plugin options, asked at install and changed later in `/config`: git handling (off by default), and a model and a reasoning effort for each of the six agents.
@@ -35,7 +35,7 @@ A switch line reads `name = off`, for example `hooks.emoji_scan = off`. Values a
 
 - **Runs:** six hook scripts, each a POSIX sh script with a PowerShell twin, and nothing else on its own.
 - **Launched by Claude Code:** `session-context` and `render-agents` at session start, `prompt-reinforce` and `render-agents` on each prompt, `git-guard` before Bash and PowerShell tool calls, `emoji-scan` after Edit and Write tool calls, and `receipt-check` when a subagent stops. There is no package launcher, no install step and no interpreter other than sh or PowerShell.
-- **Reads:** the tool call details Claude Code passes to each hook; `config/defaults.conf` inside the plugin; your personal and project `guild.conf` files when present; the file just written, for the emoji scan, only when it lies inside the project directory; the plugin's own agent files; the values of the plugin options.
+- **Reads:** the tool call details Claude Code passes to each hook; your personal and project `guild.conf` files when present; the file just written, for the emoji scan, only when it lies inside the project directory; the plugin's own context files, `context/always-on.md` and `context/procedure.md`, which the session-context hook reads at session start, and its own agent files; the values of the plugin options.
 - **Writes:** only the model and effort lines at the top of the plugin's own agent files, through the option render hook, with values restricted to fixed lists. Nothing in your home directory, nothing in your project.
 - **Sends:** nothing. No network access of any kind and no telemetry.
 - **Personal data:** none read or stored.
