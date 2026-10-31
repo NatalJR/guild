@@ -14,7 +14,7 @@ set -u
 
 # Generic binary types, tied to no project: images, fonts, archives, executables, model and
 # database files, and PDF documents.
-BINARY_EXTENSIONS=' .png .jpg .jpeg .gif .ico .onnx .sqlite .dll .exe .pdf .zip .woff .woff2 .ttf '
+BINARY_EXTENSIONS=' png jpg jpeg gif ico onnx sqlite dll exe pdf zip woff woff2 ttf '
 EMOJI_PATTERN=$(printf '\360\237[\200-\253]|\342[\230-\236]|\342[\254-\257]|\357\270\217|\342\200\215')
 # A backslash as tr reads it: tr takes two for one.
 TR_BACKSLASH=$(printf '\134\134')
@@ -37,7 +37,7 @@ to_forward_slashes() {
 }
 
 to_lower() {
-  printf '%s' "$1" | tr '[:upper:]' '[:lower:]'
+  printf '%s' "$1" | tr ABCDEFGHIJKLMNOPQRSTUVWXYZ abcdefghijklmnopqrstuvwxyz
 }
 
 absolute_directory() {
@@ -51,7 +51,7 @@ needs_trailing_slash() {
 
 # Forward-slash path in, absolute path out with `.` and `..` resolved through its directory.
 canonical_file_path() {
-  file_directory=.
+  file_directory=$(pwd)
   [ "${1#*/}" = "$1" ] || file_directory=${1%/*}
   if needs_trailing_slash "$file_directory"; then file_directory="$file_directory/"; fi
   file_directory=$(absolute_directory "$file_directory") || return 1
@@ -73,7 +73,7 @@ is_inside_project() {
 has_binary_extension() {
   file_name=${1##*/}
   [ "${file_name#*.}" != "$file_name" ] || return 1
-  extension=$(to_lower ".${file_name##*.}")
+  extension=$(to_lower "${file_name##*.}")
   extension_rest=${BINARY_EXTENSIONS#*" $extension "}
   [ "$extension_rest" != "$BINARY_EXTENSIONS" ]
 }
