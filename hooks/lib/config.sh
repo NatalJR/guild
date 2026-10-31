@@ -10,7 +10,8 @@
 # included. The plugin option CLAUDE_PLUGIN_OPTION_GIT_HANDLING (install prompt or /config) is
 # its only source: true|1|on|yes in any case is on, any other value is off, unset reads as off.
 # The defaults file is read from ${CLAUDE_PLUGIN_ROOT} only; when it is unset no defaults file is
-# read (the hooks exit before sourcing this file in that case).
+# read (the hooks exit before sourcing this file in that case). The release build compiles the
+# defaults in: it replaces that read with one declare line per defaults file entry.
 # The Claude Directory validator cannot read `case` statements, so every match below is a `[ ]`
 # test on a parameter expansion.
 set -u
@@ -25,6 +26,8 @@ _GUILD_CR=$(printf '\r')
 # GUILD_DEFAULTS keeps the same table as declared by the defaults file alone.
 guild_config_load() {
   GUILD_SWITCHES=''
+  # Release build anchor: the only code line naming the defaults file, replaced by generated
+  # declare lines. Rewriting it or adding a second such line breaks the release build.
   [ -z "${CLAUDE_PLUGIN_ROOT:-}" ] || _guild_config_read "${CLAUDE_PLUGIN_ROOT}/config/defaults.conf" declare
   GUILD_DEFAULTS=$GUILD_SWITCHES
   [ -z "${HOME:-}" ] || _guild_config_read "$HOME/.claude/guild.conf" override

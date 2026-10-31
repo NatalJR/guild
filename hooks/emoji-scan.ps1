@@ -54,7 +54,7 @@ function Get-CanonicalFilePath([string]$Path) {
 
 # Case-insensitive prefix match against the project root, with a trailing slash.
 function Test-InsideProject([string]$Path) {
-    $projectDirectory = Get-GuildVariable 'CLAUDE_PROJECT_DIR'
+    $projectDirectory = Get-GuildProjectDir
     if ($projectDirectory -eq '') { return $true }
     $projectRoot = Get-AbsoluteDirectory (ConvertTo-ForwardSlash $projectDirectory)
     if ($null -eq $projectRoot) { $projectRoot = ConvertTo-ForwardSlash $projectDirectory }
@@ -113,9 +113,15 @@ function Invoke-EmojiScan {
     return 2
 }
 
+# ROOT: true when ROOT is non-empty and names an existing directory; like its sh twin, the hook
+# does nothing otherwise.
+function Test-PluginRootPresent([string]$Root) {
+    return ($Root -ne '') -and [System.IO.Directory]::Exists($Root)
+}
+
 try {
     $pluginRoot = [string][System.Environment]::GetEnvironmentVariable('CLAUDE_PLUGIN_ROOT')
-    if ($pluginRoot -eq '') { exit 0 }
+    if (-not (Test-PluginRootPresent $pluginRoot)) { exit 0 }
     . ($pluginRoot + '/hooks/lib/payload.ps1')
     . ($pluginRoot + '/hooks/lib/config.ps1')
     $status = Invoke-EmojiScan

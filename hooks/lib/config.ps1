@@ -11,7 +11,8 @@
 # included. The plugin option CLAUDE_PLUGIN_OPTION_GIT_HANDLING (install prompt or /config) is
 # its only source: true|1|on|yes in any case is on, any other value is off, unset reads as off.
 # The defaults file is read from CLAUDE_PLUGIN_ROOT only; when it is unset no defaults file is
-# read (the hooks exit before dot-sourcing this file in that case).
+# read (the hooks exit before dot-sourcing this file in that case). The release build compiles
+# the defaults in: it replaces that read with one declare line per defaults file entry.
 # The home directory is HOME, as in the sh twin; when HOME is unset (the usual case on Windows
 # outside Git Bash) it is the user profile directory, so ~/.claude/guild.conf is still read.
 # Every comparison is ordinal and every case fold is ASCII-only, as in the C locale.
@@ -33,7 +34,7 @@ function Import-GuildConfig {
     foreach ($name in @($GUILD_SWITCHES.Keys)) { $GUILD_DEFAULTS[$name] = $GUILD_SWITCHES[$name] }
     $userHome = Get-GuildHome
     if ($userHome -ne '') { Read-GuildConfigFile ($userHome + '/.claude/guild.conf') 'override' }
-    $projectDirectory = Get-GuildVariable 'CLAUDE_PROJECT_DIR'
+    $projectDirectory = Get-GuildProjectDir
     if ($projectDirectory -ne '') { Read-GuildConfigFile ($projectDirectory + '/.claude/guild.conf') 'override' }
     Set-GuildOption
 }
@@ -69,23 +70,27 @@ function Get-GuildTrimmed([string]$Text) {
     return $Text.Trim($GUILD_SPACE_CHARACTERS)
 }
 
-# The value of process variable NAME; empty when unset.
-function Get-GuildVariable([string]$Name) {
-    return [string][System.Environment]::GetEnvironmentVariable($Name)
+# Each reader names its variable literally: the Claude Directory validator refuses a variable
+# name assembled at run time, so there is no generic reader that takes the name.
+function Get-GuildPluginRoot {
+    return [string][System.Environment]::GetEnvironmentVariable('CLAUDE_PLUGIN_ROOT')
 }
 
-function Get-GuildPluginRoot {
-    return Get-GuildVariable 'CLAUDE_PLUGIN_ROOT'
+# The project directory from CLAUDE_PROJECT_DIR; empty when unset.
+function Get-GuildProjectDir {
+    return [string][System.Environment]::GetEnvironmentVariable('CLAUDE_PROJECT_DIR')
 }
 
 # The defaults file under the plugin root; skipped when CLAUDE_PLUGIN_ROOT is unset.
 function Read-GuildDefaultsFile {
-    $pluginRoot = Get-GuildPluginRoot
-    if ($pluginRoot -ne '') { Read-GuildConfigFile ($pluginRoot + '/config/defaults.conf') 'declare' }
+    # Release build anchor: the only code line naming the defaults file, holding the whole read so
+    # the generated declare lines replace all of it. Rewriting it or adding a second such line
+    # breaks the release build.
+    if ((Get-GuildPluginRoot) -ne '') { Read-GuildConfigFile ((Get-GuildPluginRoot) + '/config/defaults.conf') 'declare' }
 }
 
 function Get-GuildHome {
-    $userHome = Get-GuildVariable 'HOME'
+    $userHome = [string][System.Environment]::GetEnvironmentVariable('HOME')
     if ($userHome -eq '') { $userHome = [System.Environment]::GetFolderPath('UserProfile') }
     return [string]$userHome
 }

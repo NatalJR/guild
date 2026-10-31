@@ -5,9 +5,10 @@
 set -u
 
 # Loads the switch library from CLAUDE_PLUGIN_ROOT, which the harness always exports for plugin
-# hooks; returns 1 when it is unset or the library is missing.
+# hooks; returns 1 when it is unset, not a directory, or the library is missing.
 load_libraries() {
   [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] || return 1
+  [ -d "${CLAUDE_PLUGIN_ROOT}" ] || return 1
   [ -f "${CLAUDE_PLUGIN_ROOT}/hooks/lib/config.sh" ] || return 1
   . "${CLAUDE_PLUGIN_ROOT}/hooks/lib/config.sh"
 }

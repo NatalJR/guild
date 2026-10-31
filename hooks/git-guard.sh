@@ -13,7 +13,7 @@
 # Switch: git.handling, set by the plugin option CLAUDE_PLUGIN_OPTION_GIT_HANDLING only (true,
 # 1, on or yes in any case is on; any other value or unset is off). A malformed payload or an
 # internal error never blocks.
-# Self-contained on purpose: the release build ships it as written, and it loads no library.
+# Self-contained on purpose: it loads no library, so the release build inlines nothing into it.
 set -u
 
 # Violation statuses of GUARD_PROGRAM; any other status, an awk error included, is no violation.
@@ -31,38 +31,46 @@ BLOCK_STATUS=3
 # written in lowercase. Newlines fold to spaces for the attribution check, which reads the whole
 # command, so an artifact command split across lines still counts. They become `;` for the flag
 # checks, so a newline ends a command segment like any other separator.
+# tab: the string holds one literal tab character.
+# segment, boundary: the rest of a git subcommand up to the next shell operator, then the end of
+# a standalone token.
+# attribution: the attribution address needs no alternative of its own: anthropic already
+# matches it.
+# no_verify: git push -n is --dry-run, not a hook bypass, so -n counts on git commit only.
+# backslash_in: the backslash in TEXT, else empty: the validator cannot inspect a hook whose text
+# holds backslash escapes.
+# single_quote_in: the single quote in TEXT, else empty: the validator cannot inspect a hook whose
+# text holds backslash escapes.
+# decoded_value: the decoded value that TEXT opens, empty when it has no closing quote. Escaped
+# backslashes and then escaped quotes are parked on characters a JSON line cannot hold, so the
+# first quote left closes the value.
+# double_quoted_span: a double-quoted span (a backslash escapes the next character, an escaped
+# quote included).
+# unquoted_words: COMMAND without its quoted spans, so a flag named inside a commit message is not
+# taken for a flag.
 GUARD_PROGRAM='
 BEGIN {
   newline = RS
-  # The string below holds one literal tab character.
   tab = "	"
   blanks = "[[:space:]]+"
-  # The rest of a git subcommand up to the next shell operator, then the end of a standalone token.
   segment = "([[:space:]][^;&|]*)?[[:space:]]"
   boundary = "([[:space:];&|)]|$)"
   git_artifact = "git" blanks "commit|gh" blanks "pr" blanks "(create|edit)"
-  # The attribution e-mail address needs no alternative of its own: anthropic already matches it.
   attribution = "co-authored-by|generated with|claude code|anthropic"
-  # git push -n is --dry-run, not a hook bypass, so -n counts on git commit only.
   no_verify = "git" blanks "commit" segment "(--no-verify|-n)" boundary "|git" blanks "push" segment "--no-verify" boundary
   force_push = "git" blanks "push" segment "(--force|-f)" boundary
 }
 
-# The backslash in TEXT, else empty: the validator cannot inspect a hook whose text holds backslash escapes.
 function backslash_in(text) {
   gsub(/[][Z^]/, "", text)
   return match(text, /[Z-^]/) ? substr(text, RSTART, 1) : ""
 }
 
-# The single quote in TEXT, else empty: the validator cannot inspect a hook whose text holds backslash escapes.
 function single_quote_in(text) {
   gsub(/[&(]/, "", text)
   return match(text, /[&-(]/) ? substr(text, RSTART, 1) : ""
 }
 
-# The decoded value that TEXT opens, empty when it has no closing quote. Escaped backslashes and
-# then escaped quotes are parked on characters a JSON line cannot hold, so the first quote left
-# closes the value.
 function decoded_value(text,   end) {
   if (backslash != "") text = parked(text)
   end = index(text, quote)
@@ -89,7 +97,6 @@ function unescaped(text,   escape) {
   return text
 }
 
-# A double-quoted span (a backslash escapes the next character, an escaped quote included).
 function double_quoted_span(   escape, plain) {
   if (backslash == "") return quote "[^" quote "]*" quote
   escape = backslash backslash
@@ -97,7 +104,6 @@ function double_quoted_span(   escape, plain) {
   return quote plain "(" escape "." plain ")*" quote
 }
 
-# COMMAND without its quoted spans, so a flag named inside a commit message is not taken for a flag.
 function unquoted_words(command,   words, single_quote) {
   words = command ";"
   gsub(newline, ";", words)

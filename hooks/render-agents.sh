@@ -108,7 +108,9 @@ rewrite_frontmatter() {
 
 main() {
   plugin_root=$(printf '%s' "$CLAUDE_PLUGIN_ROOT" | sed 's|\\|/|g')
+  # Does nothing when CLAUDE_PLUGIN_ROOT is unset or not a directory.
   [ -n "$plugin_root" ] || return 0
+  [ -d "${CLAUDE_PLUGIN_ROOT}" ] || return 0
   agents_dir="$plugin_root/agents"
   RENDERED=''
   for agent in investigator builder architect reviewer security scribe; do
