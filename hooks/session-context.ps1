@@ -9,7 +9,8 @@
 # DAG.md and the charter template. The always-on part gains a `## Guild switches changed`
 # section listing key=value for every switch that differs from its shipped default; the procedure
 # part prints nothing when procedure.default_mode is off.
-# Missing file or any internal error prints nothing and exits 0 (never blocks a session).
+# Only context/always-on.md and context/procedure.md resolve; any other part, a missing file or
+# any internal error prints nothing and exits 0 (never blocks a session).
 # Windows PowerShell 5.1 compatible syntax.
 Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
@@ -65,11 +66,17 @@ function Test-Suppressed([string]$Part) {
     return (Get-BaseName $Part) -ceq 'procedure.md' -and -not (Get-GuildSwitch 'procedure.default_mode')
 }
 
+# True only for the two parts the sh twin resolves.
+function Test-KnownPart([string]$Part) {
+    return $Part -ceq 'context/always-on.md' -or $Part -ceq 'context/procedure.md'
+}
+
 # The text to print for PART; empty when nothing is printed.
 function Get-SessionContext([string]$Part) {
     if ($Part -eq '') { $Part = 'context/always-on.md' }
     Import-GuildConfig
     if (Test-Suppressed $Part) { return '' }
+    if (-not (Test-KnownPart $Part)) { return '' }
     $root = Get-GuildPluginRoot
     if (-not [System.IO.File]::Exists($root + '/' + $Part)) { return '' }
     $rootForward = $root.Replace('\', '/')

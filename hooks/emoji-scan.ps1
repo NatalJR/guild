@@ -109,7 +109,7 @@ function Invoke-EmojiScan {
     if (-not (Test-Scannable $filePath (ConvertTo-ForwardSlash $filePath))) { return 0 }
     $hitLine = Get-FirstEmojiLine $filePath
     if ($hitLine -eq 0) { return 0 }
-    Write-HookError ('Emoji found in ' + $filePath + ' at line ' + $hitLine + ' (first hit). Owner rule: no emoji in any committed file; write severity/status markers as words. Remove it.' + "`n")
+    Write-HookError ('Emoji found in ' + $filePath + ' at line ' + $hitLine + ', the first hit. Owner rule: no emoji in any committed file; write severity/status markers as words. Remove it.' + "`n")
     return 2
 }
 

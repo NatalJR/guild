@@ -257,17 +257,26 @@ is_suppressed() {
   [ "${1##*/}" = procedure.md ] && ! guild_switch procedure.default_mode
 }
 
+select_part_file() {
+  if [ "$1" = context/always-on.md ]; then
+    part_file="${CLAUDE_PLUGIN_ROOT}/context/always-on.md"
+  elif [ "$1" = context/procedure.md ]; then
+    part_file="${CLAUDE_PLUGIN_ROOT}/context/procedure.md"
+  else
+    return 1
+  fi
+}
+
 main() {
   part=${1:-context/always-on.md}
   load_libraries || return 0
   guild_config_load
   ! is_suppressed "$part" || return 0
-  root="$CLAUDE_PLUGIN_ROOT/"
-  root=${root%/}
-  [ -f "$root/$part" ] && [ -r "$root/$part" ] || return 0
-  replace_all "$root" "$BACKSLASH" '/'
-  ROOT_FORWARD=$REPLACED
-  rendered=$(render_file "$root/$part") || return 0
+  select_part_file "$part" || return 0
+  [ -f "$part_file" ] && [ -r "$part_file" ] || return 0
+  replace_all "$CLAUDE_PLUGIN_ROOT/" "$BACKSLASH" '/'
+  ROOT_FORWARD=${REPLACED%/}
+  rendered=$(render_file "$part_file") || return 0
   printf '%s\n' "$rendered"
   [ "${part##*/}" != always-on.md ] || print_switches_changed
 }

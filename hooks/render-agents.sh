@@ -3,6 +3,7 @@ set -u
 
 MODELS='haiku sonnet opus fable inherit'
 EFFORTS='low medium high xhigh max'
+TR_BACKSLASH=$(printf '\134\134')
 
 option_value() {
   if [ "$2" = model ]; then model_option "$1"; else effort_option "$1"; fi
@@ -80,7 +81,7 @@ rewrite_frontmatter() {
 }
 
 main() {
-  plugin_root=$(printf '%s' "$CLAUDE_PLUGIN_ROOT/" | sed 's|\\|/|g')
+  plugin_root=$(printf '%s' "$CLAUDE_PLUGIN_ROOT/" | tr "$TR_BACKSLASH" '/')
   plugin_root=${plugin_root%/}
   [ -n "$plugin_root" ] || return 0
   [ -d "${CLAUDE_PLUGIN_ROOT}/hooks" ] || return 0
@@ -90,7 +91,7 @@ main() {
     render_agent "$agent" || continue
   done
   [ -n "$RENDERED" ] || return 0
-  printf 'GUILD AGENTS RENDERED: %s. Run /reload-plugins to apply.\n' "$RENDERED"
+  printf 'GUILD AGENTS RENDERED: %s. Run the reload-plugins command to apply.\n' "$RENDERED"
 }
 
 (main) 2>/dev/null

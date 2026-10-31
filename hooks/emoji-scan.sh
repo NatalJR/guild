@@ -38,8 +38,8 @@ payload_bool() {
 }
 
 payload_first_line() {
-  printf '%s\n' "$1" | LC_ALL=C sed -n -e '/[^[:space:]]/{' -e 's/^[[:space:]]*//' \
-    -e 's/[[:space:]]*$//' -e 'p' -e 'q' -e '}'
+  printf '%s\n' "$1" | LC_ALL=C grep -v -e '^[[:space:]]*$' | head -n 1 |
+    LC_ALL=C sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'
 }
 
 _payload_is_name() {
@@ -294,7 +294,7 @@ main() {
   scannable_payload_file || return 0
   hit_line=$(first_emoji_line "$file_path")
   [ -n "$hit_line" ] || return 0
-  printf 'Emoji found in %s at line %s (first hit). Owner rule: no emoji in any committed file; write severity/status markers as words. Remove it.\n' "$file_path" "$hit_line" >&2
+  printf 'Emoji found in %s at line %s, the first hit. Owner rule: no emoji in any committed file; write severity/status markers as words. Remove it.\n' "$file_path" "$hit_line" >&2
   exit "$BLOCK_STATUS"
 }
 
