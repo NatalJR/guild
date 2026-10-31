@@ -92,7 +92,7 @@ match($0, /"command"[[:space:]]*:[[:space:]]*"/) {
 }'
 
 plugin_root_present() {
-  [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -d "$CLAUDE_PLUGIN_ROOT" ]
+  [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -d "$CLAUDE_PLUGIN_ROOT/hooks" ]
 }
 
 git_handling_on() {

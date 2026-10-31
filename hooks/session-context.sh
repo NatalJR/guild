@@ -12,7 +12,7 @@ ROOT_MARK="$LB${LB}PLUGIN_ROOT$RB$RB"
 
 load_libraries() {
   [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] || return 1
-  [ -d "${CLAUDE_PLUGIN_ROOT}" ] || return 1
+  [ -d "${CLAUDE_PLUGIN_ROOT}/hooks" ] || return 1
 set -u
 
 GUILD_SWITCHES=''
@@ -114,8 +114,10 @@ _guild_config_parse() {
 }
 
 _guild_trim() {
-  _guild_trimmed=${1#"${1%%[![:space:]]*}"}
-  _guild_trimmed=${_guild_trimmed%"${_guild_trimmed##*[![:space:]]}"}
+  _guild_lead=${1%%[![:space:]]*}
+  _guild_trimmed=${1#"$_guild_lead"}
+  _guild_tail=${_guild_trimmed##*[![:space:]]}
+  _guild_trimmed=${_guild_trimmed%"$_guild_tail"}
 }
 
 _guild_is_name() {
@@ -260,7 +262,8 @@ main() {
   load_libraries || return 0
   guild_config_load
   ! is_suppressed "$part" || return 0
-  root=${CLAUDE_PLUGIN_ROOT}
+  root="$CLAUDE_PLUGIN_ROOT/"
+  root=${root%/}
   [ -f "$root/$part" ] && [ -r "$root/$part" ] || return 0
   replace_all "$root" "$BACKSLASH" '/'
   ROOT_FORWARD=$REPLACED
