@@ -119,7 +119,7 @@ function Invoke-Hook([string]$Hook, [string]$Payload, [string[]]$Arguments = @()
 function New-HookStart([string]$Hook, [string[]]$Arguments) {
     $start = New-Object System.Diagnostics.ProcessStartInfo
     $start.FileName = $PowerShellPath
-    $start.Arguments = Join-CommandLine (@('-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', (Join-Path $Hooks ($Hook + '.ps1'))) + $Arguments)
+    $start.Arguments = Join-CommandLine (@('-NoProfile', '-NonInteractive', '-File', (Join-Path $Hooks ($Hook + '.ps1'))) + $Arguments)
     $start.UseShellExecute = $false
     $start.CreateNoWindow = $true
     $start.RedirectStandardInput = $true
