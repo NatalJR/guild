@@ -78,10 +78,10 @@ function Get-SessionContext([string]$Part) {
     return $text
 }
 
-# ROOT: true when ROOT is non-empty and names an existing directory; like its sh twin, the hook
+# ROOT: true when ROOT is non-empty and its hooks directory exists; like its sh twin, the hook
 # does nothing otherwise.
 function Test-PluginRootPresent([string]$Root) {
-    return ($Root -ne '') -and [System.IO.Directory]::Exists($Root)
+    return ($Root -ne '') -and [System.IO.Directory]::Exists($Root + '/hooks')
 }
 
 try {

@@ -26,10 +26,10 @@ END_MARK="$RB$RB"
 ROOT_MARK="$LB${LB}PLUGIN_ROOT$RB$RB"
 
 # Loads the switch library from CLAUDE_PLUGIN_ROOT, which the harness always exports for plugin
-# hooks; returns 1 when it is unset, not a directory, or the library is missing.
+# hooks; returns 1 when it is unset, its hooks directory is missing, or the library is missing.
 load_libraries() {
   [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] || return 1
-  [ -d "${CLAUDE_PLUGIN_ROOT}" ] || return 1
+  [ -d "${CLAUDE_PLUGIN_ROOT}/hooks" ] || return 1
   [ -f "${CLAUDE_PLUGIN_ROOT}/hooks/lib/config.sh" ] || return 1
   . "${CLAUDE_PLUGIN_ROOT}/hooks/lib/config.sh"
 }
@@ -119,7 +119,9 @@ main() {
   load_libraries || return 0
   guild_config_load
   ! is_suppressed "$part" || return 0
-  root=${CLAUDE_PLUGIN_ROOT}
+  # The trailing slash keeps the bare root out of the assignment; it is stripped again here.
+  root="$CLAUDE_PLUGIN_ROOT/"
+  root=${root%/}
   [ -f "$root/$part" ] && [ -r "$root/$part" ] || return 0
   replace_all "$root" "$BACKSLASH" '/'
   ROOT_FORWARD=$REPLACED

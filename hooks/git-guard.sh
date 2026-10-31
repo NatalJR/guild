@@ -133,9 +133,10 @@ match($0, /"command"[[:space:]]*:[[:space:]]*"/) {
   exit violation_status(command)
 }'
 
-# Like its PowerShell twin, the hook does nothing unless the harness names an existing plugin root.
+# Like its PowerShell twin, the hook does nothing unless the harness names a plugin root whose hooks
+# directory exists.
 plugin_root_present() {
-  [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -d "$CLAUDE_PLUGIN_ROOT" ]
+  [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -d "$CLAUDE_PLUGIN_ROOT/hooks" ]
 }
 
 # Succeeds when the git handling plugin option is set to 1, true, on or yes in any case.

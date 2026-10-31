@@ -58,10 +58,11 @@ $PAYLOAD_MARK = [string][char]31
 $PAYLOAD_QUOTE = [string][char]30
 $COMMAND_FIELD_PATTERN = New-Object System.Text.RegularExpressions.Regex -ArgumentList ($DOUBLE_QUOTE + 'command' + $DOUBLE_QUOTE + '[' + $LINE_SPACES + ']*:[' + $LINE_SPACES + ']*' + $DOUBLE_QUOTE)
 
-# Like its sh twin, the hook does nothing unless the harness names an existing plugin root.
+# Like its sh twin, the hook does nothing unless the harness names a plugin root whose hooks
+# directory exists.
 function Test-PluginRootPresent {
     $pluginRoot = [string][System.Environment]::GetEnvironmentVariable('CLAUDE_PLUGIN_ROOT')
-    return ($pluginRoot -ne '') -and [System.IO.Directory]::Exists($pluginRoot)
+    return ($pluginRoot -ne '') -and [System.IO.Directory]::Exists($pluginRoot + '/hooks')
 }
 
 # True when the git handling plugin option is set to 1, true, on or yes in any case.
