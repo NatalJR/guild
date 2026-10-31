@@ -930,6 +930,14 @@ expect_release_violation 'single-quoted dot value' hooks/reader.sh "dir='.'" 'ba
 expect_release_violation 'dot value before )' hooks/reader.sh '(dir=.)' 'bare dot value'
 expect_release_violation 'dot value before &&' hooks/reader.sh 'dir=.&&true' 'bare dot value'
 expect_release_violation 'dot default expansion' hooks/reader.sh 'x=${d:-.}' 'bare dot value'
+expect_release_violation 'quoted nested parameter expansion' hooks/reader.sh 't=${1#"${1%%x*}"}' \
+  'nested parameter expansion'
+expect_release_violation 'unquoted nested parameter expansion' hooks/reader.sh 't=${x%${x##*y}}' \
+  'nested parameter expansion'
+expect_release_violation 'bare plugin root' hooks/reader.sh '[ -d "$CLAUDE_PLUGIN_ROOT" ]' 'bare plugin root'
+expect_release_violation 'braced bare plugin root' hooks/reader.sh '[ -d "${CLAUDE_PLUGIN_ROOT}" ]' 'bare plugin root'
+expect_release_violation 'plugin root as a printf argument' hooks/reader.sh \
+  "x=\$(printf '%s' \"\$CLAUDE_PLUGIN_ROOT\")" 'bare plugin root'
 
 describe 'check-release-tree: a line reports each rule once'
 new_checked_tree
@@ -942,8 +950,10 @@ new_checked_tree
 printf '%s\n' '$a.b' '.5 + 1' '$echo = 1' '[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding' \
   "\$name = [Environment]::GetEnvironmentVariable('LITERAL')" "\$read = [Environment]::GetEnvironmentVariable( 'HOME')" \
   "[Console]::Error.Write('x')" "\$o.Write('x')" '$a && $b' '$h = $env:HOME' 'Invoke-EmojiScan' >"$CHECKED_TREE/hooks/git-guard.ps1"
-printf '%s\n' 'environment' 'root="${CLAUDE_PLUGIN_ROOT}"' 'dir=./x' 'dir=..' 'n=.5' 'name=${file%.*}' \
-  'x = y "." z' 'x=${d:-./y}' 'x=${d%.*}' >"$CHECKED_TREE/hooks/clean.sh"
+printf '%s\n' 'environment' 'dir=./x' 'dir=..' 'n=.5' 'name=${file%.*}' \
+  'x = y "." z' 'x=${d:-./y}' 'x=${d%.*}' 'l=${1%%x*}; t=${1#"$l"}' 'p="${a}${b}"' 'q=${a%x}/${b#y}' \
+  '[ -n "${CLAUDE_PLUGIN_ROOT:-}" ]' '[ -d "$CLAUDE_PLUGIN_ROOT/hooks" ]' 'x="${CLAUDE_PLUGIN_ROOT}/agents"' \
+  '[ -n "${CLAUDE_PLUGIN_ROOT+set}" ]' >"$CHECKED_TREE/hooks/clean.sh"
 run_release_check
 expect_equal '0 []' "$CHECK_EXIT [$CHECK_OUTPUT]"
 

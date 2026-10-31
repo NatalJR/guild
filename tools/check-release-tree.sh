@@ -12,10 +12,15 @@
 # - a line that loads or runs another file (`. "...`, `source `, `sh "...`)
 # - any `case` statement
 # - a quote nested inside a double-quoted string (a `"` inside a `${ }` inside `"..."`)
+# - a parameter expansion nested inside another (a `${` opened before the enclosing expansion
+#   closes with its `}`), quoted or not; `$(...)` inside an expansion is not tracked
 # - a lone quote literal, `'"'` or `"'"`
 # - `$PWD` or `${!`
 # - an assignment whose whole value is `.`, bare or quoted (`NAME=.`, `NAME="."`, `NAME='.'`),
 #   or a default expansion whose default is `.` (`${NAME:-.}`, `${NAME-.}`)
+# - `$CLAUDE_PLUGIN_ROOT` or `${CLAUDE_PLUGIN_ROOT}`, quoted or not, not immediately followed by
+#   `/`; the forms `${CLAUDE_PLUGIN_ROOT:-...}`, `${CLAUDE_PLUGIN_ROOT-...}`,
+#   `${CLAUDE_PLUGIN_ROOT+...}` and `${CLAUDE_PLUGIN_ROOT:+...}` stay allowed
 # - .ps1 (any case): a dot-source (a lone `.` at the line start or after `{`, `;`, `(`, `|` or
 #   `=`, then optional blanks and `(`, `$`, a quote, a slash, a backslash or `~`, or blanks and a
 #   path character), Import-Module, the call operator `&` followed by `(`, `$` or a quote,
@@ -88,8 +93,20 @@ shell_rules() {
       runs_sh = "(^|[^A-Za-z0-9_])(sh|bash|dash)[ \t]+[" dq q "$/]"
       bare_dot = "(^|[^A-Za-z0-9_])[A-Za-z_][A-Za-z0-9_]*=([.]|" dq "[.]" dq "|" q "[.]" q ")([ \t;)&|]|$)"
       dot_default = "[$][{][A-Za-z_][A-Za-z0-9_]*:?-[.][}]"
+      bare_plugin_root = "[$](CLAUDE_PLUGIN_ROOT([^A-Za-z0-9_/]|$)|[{]CLAUDE_PLUGIN_ROOT[}]([^/]|$))"
     }
     function report(rule) { print FILENAME ":" FNR ": " rule }
+    # LINE: a `${` opened while an earlier expansion on the line is still open; a `}` closes the
+    # innermost open expansion, and braces without a `$` before them never open one.
+    function nests_expansion(line,   i, c, depth) {
+      depth = 0
+      for (i = 1; i <= length(line); i++) {
+        c = substr(line, i, 1)
+        if (c == "$" && substr(line, i + 1, 1) == "{") { if (depth > 0) return 1; depth++; i++ }
+        else if (c == "}" && depth > 0) depth--
+      }
+      return 0
+    }
     { sub(/\r$/, "") }
     FNR == 1 && /^#!/ { next }
     index($0, "<<") { report("typed <<") }
@@ -99,6 +116,8 @@ shell_rules() {
     index($0, "$PWD") || index($0, "${PWD") { report("reads PWD") }
     index($0, "${!") { report("indirect expansion ${!") }
     $0 ~ bare_dot || $0 ~ dot_default { report("bare dot value") }
+    $0 ~ bare_plugin_root { report("bare plugin root") }
+    nests_expansion($0) { report("nested parameter expansion") }
   ' {} +
 }
 
