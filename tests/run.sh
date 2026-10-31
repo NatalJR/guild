@@ -924,6 +924,12 @@ expect_release_violation 'PreToolUse Tee-Object' hooks/git-guard.ps1 'Tee-Object
 expect_release_violation 'PreToolUse write after =' hooks/git-guard.ps1 '$x = write 1' 'PreToolUse stdout writer'
 expect_release_violation 'dot-source after =' hooks/loader.ps1 '$x = . $p' dot-source
 expect_release_violation 'dot-source after {' hooks/loader.ps1 '{ . $p }' dot-source
+expect_release_violation 'bare dot value' hooks/reader.sh 'dir=.' 'bare dot value'
+expect_release_violation 'double-quoted dot value' hooks/reader.sh 'dir="."' 'bare dot value'
+expect_release_violation 'single-quoted dot value' hooks/reader.sh "dir='.'" 'bare dot value'
+expect_release_violation 'dot value before )' hooks/reader.sh '(dir=.)' 'bare dot value'
+expect_release_violation 'dot value before &&' hooks/reader.sh 'dir=.&&true' 'bare dot value'
+expect_release_violation 'dot default expansion' hooks/reader.sh 'x=${d:-.}' 'bare dot value'
 
 describe 'check-release-tree: a line reports each rule once'
 new_checked_tree
@@ -931,12 +937,13 @@ printf '%s\n' '# planted' 'iex $s; Invoke-Expression $t' >"$CHECKED_TREE/hooks/l
 run_release_check
 expect_equal '1' "$(printf '%s\n' "$CHECK_OUTPUT" | grep -c -F './hooks/loader.ps1:2: Invoke-Expression')"
 
-describe 'check-release-tree: clean tree passes (member access and calls, decimal, $echo, &&, literal reads)'
+describe 'check-release-tree: clean tree passes (member access and calls, decimal, $echo, &&, literal reads, dot near-misses)'
 new_checked_tree
 printf '%s\n' '$a.b' '.5 + 1' '$echo = 1' '[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding' \
   "\$name = [Environment]::GetEnvironmentVariable('LITERAL')" "\$read = [Environment]::GetEnvironmentVariable( 'HOME')" \
   "[Console]::Error.Write('x')" "\$o.Write('x')" '$a && $b' '$h = $env:HOME' 'Invoke-EmojiScan' >"$CHECKED_TREE/hooks/git-guard.ps1"
-printf '%s\n' 'environment' 'root="${CLAUDE_PLUGIN_ROOT}"' >"$CHECKED_TREE/hooks/clean.sh"
+printf '%s\n' 'environment' 'root="${CLAUDE_PLUGIN_ROOT}"' 'dir=./x' 'dir=..' 'n=.5' 'name=${file%.*}' \
+  'x = y "." z' 'x=${d:-./y}' 'x=${d%.*}' >"$CHECKED_TREE/hooks/clean.sh"
 run_release_check
 expect_equal '0 []' "$CHECK_EXIT [$CHECK_OUTPUT]"
 

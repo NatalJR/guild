@@ -14,6 +14,8 @@
 # - a quote nested inside a double-quoted string (a `"` inside a `${ }` inside `"..."`)
 # - a lone quote literal, `'"'` or `"'"`
 # - `$PWD` or `${!`
+# - an assignment whose whole value is `.`, bare or quoted (`NAME=.`, `NAME="."`, `NAME='.'`),
+#   or a default expansion whose default is `.` (`${NAME:-.}`, `${NAME-.}`)
 # - .ps1 (any case): a dot-source (a lone `.` at the line start or after `{`, `;`, `(`, `|` or
 #   `=`, then optional blanks and `(`, `$`, a quote, a slash, a backslash or `~`, or blanks and a
 #   path character), Import-Module, the call operator `&` followed by `(`, `$` or a quote,
@@ -84,6 +86,8 @@ shell_rules() {
       q = "\047"; dq = "\""
       loads_dot = "(^|[;&|({ \t])[.][ \t]+[" dq q "$/]"
       runs_sh = "(^|[^A-Za-z0-9_])(sh|bash|dash)[ \t]+[" dq q "$/]"
+      bare_dot = "(^|[^A-Za-z0-9_])[A-Za-z_][A-Za-z0-9_]*=([.]|" dq "[.]" dq "|" q "[.]" q ")([ \t;)&|]|$)"
+      dot_default = "[$][{][A-Za-z_][A-Za-z0-9_]*:?-[.][}]"
     }
     function report(rule) { print FILENAME ":" FNR ": " rule }
     { sub(/\r$/, "") }
@@ -94,6 +98,7 @@ shell_rules() {
     index($0, q dq q) || index($0, dq q dq) { report("lone quote literal") }
     index($0, "$PWD") || index($0, "${PWD") { report("reads PWD") }
     index($0, "${!") { report("indirect expansion ${!") }
+    $0 ~ bare_dot || $0 ~ dot_default { report("bare dot value") }
   ' {} +
 }
 
