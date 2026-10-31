@@ -3,6 +3,7 @@ set -u
 
 load_libraries() {
   [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] || return 1
+  [ -d "${CLAUDE_PLUGIN_ROOT}" ] || return 1
 set -u
 
 GUILD_SWITCHES=''
@@ -13,7 +14,21 @@ _GUILD_CR=$(printf '\r')
 
 guild_config_load() {
   GUILD_SWITCHES=''
-  [ -z "${CLAUDE_PLUGIN_ROOT:-}" ] || _guild_config_read "${CLAUDE_PLUGIN_ROOT}/config/defaults.conf" declare
+  _guild_config_mode=declare
+  _guild_config_apply 'style.terse = on'
+  _guild_config_apply 'rules.universal = on'
+  _guild_config_apply 'procedure.default_mode = on'
+  _guild_config_apply 'procedure.investigate_first = on'
+  _guild_config_apply 'procedure.design_gate = on'
+  _guild_config_apply 'procedure.sharding = on'
+  _guild_config_apply 'procedure.cleanup_pass = on'
+  _guild_config_apply 'review.norms = on'
+  _guild_config_apply 'review.correctness = on'
+  _guild_config_apply 'review.security = on'
+  _guild_config_apply 'docs.sync = on'
+  _guild_config_apply 'hooks.prompt_reinforce = on'
+  _guild_config_apply 'hooks.emoji_scan = on'
+  _guild_config_apply 'hooks.receipt_check = on'
   GUILD_DEFAULTS=$GUILD_SWITCHES
   [ -z "${HOME:-}" ] || _guild_config_read "$HOME/.claude/guild.conf" override
   [ -z "${CLAUDE_PROJECT_DIR:-}" ] || _guild_config_read "$CLAUDE_PROJECT_DIR/.claude/guild.conf" override

@@ -12,19 +12,40 @@
 Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
 
-$AGENTS = @('investigator', 'builder', 'architect', 'reviewer', 'security', 'scribe')
 $ALLOWED = @{
     model = @('haiku', 'sonnet', 'opus', 'fable', 'inherit')
     effort = @('low', 'medium', 'high', 'xhigh', 'max')
 }
 $FILE_UTF8 = New-Object System.Text.UTF8Encoding -ArgumentList $false, $false
 
+# The Claude Directory validator refuses a variable name assembled at run time, so every option
+# variable name below is spelled out in full.
+# Agent name to CLAUDE_PLUGIN_OPTION_<AGENT>_MODEL, empty when unset.
+$MODEL_OPTIONS = [ordered]@{
+    investigator = [string][System.Environment]::GetEnvironmentVariable('CLAUDE_PLUGIN_OPTION_INVESTIGATOR_MODEL')
+    builder = [string][System.Environment]::GetEnvironmentVariable('CLAUDE_PLUGIN_OPTION_BUILDER_MODEL')
+    architect = [string][System.Environment]::GetEnvironmentVariable('CLAUDE_PLUGIN_OPTION_ARCHITECT_MODEL')
+    reviewer = [string][System.Environment]::GetEnvironmentVariable('CLAUDE_PLUGIN_OPTION_REVIEWER_MODEL')
+    security = [string][System.Environment]::GetEnvironmentVariable('CLAUDE_PLUGIN_OPTION_SECURITY_MODEL')
+    scribe = [string][System.Environment]::GetEnvironmentVariable('CLAUDE_PLUGIN_OPTION_SCRIBE_MODEL')
+}
+# Agent name to CLAUDE_PLUGIN_OPTION_<AGENT>_EFFORT, empty when unset.
+$EFFORT_OPTIONS = [ordered]@{
+    investigator = [string][System.Environment]::GetEnvironmentVariable('CLAUDE_PLUGIN_OPTION_INVESTIGATOR_EFFORT')
+    builder = [string][System.Environment]::GetEnvironmentVariable('CLAUDE_PLUGIN_OPTION_BUILDER_EFFORT')
+    architect = [string][System.Environment]::GetEnvironmentVariable('CLAUDE_PLUGIN_OPTION_ARCHITECT_EFFORT')
+    reviewer = [string][System.Environment]::GetEnvironmentVariable('CLAUDE_PLUGIN_OPTION_REVIEWER_EFFORT')
+    security = [string][System.Environment]::GetEnvironmentVariable('CLAUDE_PLUGIN_OPTION_SECURITY_EFFORT')
+    scribe = [string][System.Environment]::GetEnvironmentVariable('CLAUDE_PLUGIN_OPTION_SCRIBE_EFFORT')
+}
+# The agents, in render order: the option tables above define the set.
+$AGENTS = @($MODEL_OPTIONS.Keys)
+
 # AGENT SETTING: the plugin option for SETTING (model or effort), empty when unset.
 function Get-AgentOption([string]$Agent, [string]$Setting) {
-    $name = 'CLAUDE_PLUGIN_OPTION_' + $Agent.ToUpperInvariant() + '_' + $Setting.ToUpperInvariant()
-    $value = [System.Environment]::GetEnvironmentVariable($name)
-    if ($null -eq $value) { return '' }
-    return $value
+    if ($Setting -eq 'model') { return [string]$MODEL_OPTIONS[$Agent] }
+    if ($Setting -eq 'effort') { return [string]$EFFORT_OPTIONS[$Agent] }
+    return ''
 }
 
 # LINES: index of the closing frontmatter line (the last line when unclosed), -1 without one.
@@ -118,10 +139,75 @@ function Get-RenderedAgent([string]$Directory, [string]$Agent) {
     }
 }
 
+# ROOT: true when ROOT is non-empty and names an existing directory; like its sh twin, the hook
+# does nothing otherwise.
+function Test-PluginRootPresent([string]$Root) {
+    return ($Root -ne '') -and [System.IO.Directory]::Exists($Root)
+}
+
 try {
     $root = [string][System.Environment]::GetEnvironmentVariable('CLAUDE_PLUGIN_ROOT')
-    if ($root -eq '') { exit 0 }
-    . ($root + '/hooks/lib/payload.ps1')
+    if (-not (Test-PluginRootPresent $root)) { exit 0 }
+Set-StrictMode -Version 2.0
+$PAYLOAD_UTF8 = New-Object System.Text.UTF8Encoding -ArgumentList $false, $false
+$PAYLOAD_MARK = [string][char]31
+$PAYLOAD_QUOTE = [string][char]30
+$PAYLOAD_SPACE_CHARACTERS = [char[]]@(32, 9, 10, 11, 12, 13)
+function Read-Payload {
+    try {
+        $buffer = New-Object System.IO.MemoryStream
+        [Console]::OpenStandardInput().CopyTo($buffer)
+        $text = $PAYLOAD_UTF8.GetString($buffer.ToArray())
+    } catch {
+        return ''
+    }
+    return $text.Replace([string][char]0, '').TrimEnd([char]10)
+}
+function Get-PayloadField([string]$Payload, [string]$Name) {
+    if ($Name -cnotmatch '^[A-Za-z0-9_]+\z') { return $null }
+    $fieldPattern = New-Object System.Text.RegularExpressions.Regex -ArgumentList ('"' + $Name + '"[ \t\v\f\r]*:[ \t\v\f\r]*"')
+    foreach ($line in $Payload.Split([char]10)) {
+        if ($fieldPattern.IsMatch($line)) { return ConvertFrom-PayloadValue ($fieldPattern.Replace($line, $PAYLOAD_MARK, 1)) }
+    }
+    return $null
+}
+function Test-PayloadBool([string]$Payload, [string]$Name) {
+    $quoted = '"' + $Name + '"'
+    return $Payload.Contains($quoted + ':true') -or $Payload.Contains($quoted + ': true')
+}
+function Get-FirstNonEmptyLine([string]$Text) {
+    foreach ($line in $Text.Split([char]10)) {
+        if ($line -cmatch '[^ \t\n\v\f\r]') { return $line.Trim($PAYLOAD_SPACE_CHARACTERS) }
+    }
+    return ''
+}
+function ConvertTo-AsciiLowerCase([string]$Text) {
+    $characters = $Text.ToCharArray()
+    for ($index = 0; $index -lt $characters.Length; $index++) {
+        $code = [int]$characters[$index]
+        if ($code -ge 65 -and $code -le 90) { $characters[$index] = [char]($code + 32) }
+    }
+    return -join $characters
+}
+function Write-HookOutput([string]$Text) {
+    Write-HookStream ([Console]::OpenStandardOutput()) ($PAYLOAD_UTF8.GetBytes($Text))
+}
+function Write-HookError([string]$Text) {
+    Write-HookStream ([Console]::OpenStandardError()) ($PAYLOAD_UTF8.GetBytes($Text))
+}
+function Write-HookStream([System.IO.Stream]$Stream, [byte[]]$Bytes) {
+    $Stream.Write($Bytes, 0, $Bytes.Length)
+    $Stream.Flush()
+}
+function ConvertFrom-PayloadValue([string]$Line) {
+    $value = $Line.Substring($Line.IndexOf($PAYLOAD_MARK, [System.StringComparison]::Ordinal) + 1)
+    $value = $value.Replace('\\', $PAYLOAD_MARK).Replace('\"', $PAYLOAD_QUOTE)
+    $closingQuote = $value.IndexOf([char]34)
+    if ($closingQuote -lt 0) { return $null }
+    $value = $value.Substring(0, $closingQuote).Replace($PAYLOAD_QUOTE, '"').Replace('\/', '/')
+    $value = $value.Replace('\n', [string][char]10).Replace('\t', [string][char]9).Replace('\r', '')
+    return $value.Replace($PAYLOAD_MARK, '\').TrimEnd([char]10)
+}
     $directory = Join-Path $root 'agents'
     $rendered = @(@(foreach ($agent in $AGENTS) { Get-RenderedAgent $directory $agent }) | Where-Object { $_ -ne '' })
     if ($rendered.Count -gt 0) {
