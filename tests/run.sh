@@ -585,7 +585,7 @@ describe 'emoji-scan: NUL byte keeps the reported line number exact'
 new_scratch_dir
 printf 'one\ntwo \000\nthree \342\234\205\n' >"$SCRATCH_DIR/nul.md"
 CLAUDE_PROJECT_DIR=$SCRATCH_DIR
-expect_exit emoji-scan.sh 2 "$(file_payload "$SCRATCH_DIR/nul.md")" 'nul.md at line 3 (first hit)'
+expect_exit emoji-scan.sh 2 "$(file_payload "$SCRATCH_DIR/nul.md")" 'nul.md at line 3, the first hit'
 reset_env
 
 describe 'emoji-scan: uppercase binary extension skipped'
@@ -762,23 +762,23 @@ export CLAUDE_PLUGIN_OPTION_GIT_HANDLING
 expect_stdout_lacks '{{' session-context.sh context/procedure.md
 reset_env
 
-# Points CLAUDE_PLUGIN_ROOT at a scratch root whose context/markers.md holds a plain and a
+# Points CLAUDE_PLUGIN_ROOT at a scratch root whose context/procedure.md holds a plain and a
 # negated block on the same switch.
 use_marker_root() {
   new_scratch_dir
   mkdir -p "$SCRATCH_DIR/config" "$SCRATCH_DIR/context"
   cp "$REPO_ROOT/config/defaults.conf" "$SCRATCH_DIR/config/defaults.conf"
   copy_hook_libraries "$SCRATCH_DIR"
-  printf '%s\n' head '{{#if review.security}}' plain '{{/if}}' '{{#if !review.security}}' negated '{{/if}}' tail >"$SCRATCH_DIR/context/markers.md"
+  printf '%s\n' head '{{#if review.security}}' plain '{{/if}}' '{{#if !review.security}}' negated '{{/if}}' tail >"$SCRATCH_DIR/context/procedure.md"
   CLAUDE_PLUGIN_ROOT=$SCRATCH_DIR
 }
 describe 'session-context: negated block dropped while its switch is on'
 use_marker_root
-run_context session-context.sh context/markers.md
+run_context session-context.sh context/procedure.md
 expect_equal "head${NL}plain${NL}tail" "$RUN_STDOUT"
 describe 'session-context: negated block kept while its switch is off'
 use_user_conf 'review.security = off'
-run_context session-context.sh context/markers.md
+run_context session-context.sh context/procedure.md
 expect_equal "head${NL}negated${NL}tail" "$RUN_STDOUT"
 reset_env
 
@@ -830,7 +830,7 @@ export CLAUDE_PLUGIN_OPTION_BUILDER_MODEL CLAUDE_PLUGIN_OPTION_REVIEWER_MODEL
 run_context render-agents.sh
 expect_equal "reviewer.md - model: opus${NL}reviewer.md + model: sonnet" "$(agents_changes)"
 describe 'render-agents: the notice lists only the agents rendered'
-expect_equal 'GUILD AGENTS RENDERED: reviewer model=sonnet effort=high. Run /reload-plugins to apply.' "$RUN_STDOUT"
+expect_equal 'GUILD AGENTS RENDERED: reviewer model=sonnet effort=high. Run the reload-plugins command to apply.' "$RUN_STDOUT"
 reset_env
 
 describe 'render-agents: invalid values leave every agent file untouched'

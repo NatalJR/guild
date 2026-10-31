@@ -106,7 +106,7 @@ main() {
   scannable_payload_file || return 0
   hit_line=$(first_emoji_line "$file_path")
   [ -n "$hit_line" ] || return 0
-  printf 'Emoji found in %s at line %s (first hit). Owner rule: no emoji in any committed file; write severity/status markers as words. Remove it.\n' "$file_path" "$hit_line" >&2
+  printf 'Emoji found in %s at line %s, the first hit. Owner rule: no emoji in any committed file; write severity/status markers as words. Remove it.\n' "$file_path" "$hit_line" >&2
   exit "$BLOCK_STATUS"
 }
 

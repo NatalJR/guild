@@ -40,8 +40,8 @@ payload_bool() {
 
 # Prints the first line of TEXT that is not blank, trimmed of surrounding whitespace.
 payload_first_line() {
-  printf '%s\n' "$1" | LC_ALL=C sed -n -e '/[^[:space:]]/{' -e 's/^[[:space:]]*//' \
-    -e 's/[[:space:]]*$//' -e 'p' -e 'q' -e '}'
+  printf '%s\n' "$1" | LC_ALL=C grep -v -e '^[[:space:]]*$' | head -n 1 |
+    LC_ALL=C sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'
 }
 
 # Succeeds when NAME is not empty and holds only [A-Za-z0-9_].

@@ -134,35 +134,35 @@ case=git-guard: hook bypass block is one line
 hook=git-guard
 env=CLAUDE_PLUGIN_OPTION_GIT_HANDLING=true
 payload={"session_id":"s","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"git commit --no-verify -m \"fix: x\"","description":"d"}}
-stderr-equals=BLOCKED: hook bypass (--no-verify) is forbidden. Fix the failing hook instead.
+stderr-equals=BLOCKED: hook bypass with --no-verify is forbidden. Fix the failing hook instead.
 
 case=git-guard: commit -n blocked
 hook=git-guard
 env=CLAUDE_PLUGIN_OPTION_GIT_HANDLING=true
 payload={"session_id":"s","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"git commit -m \"fix: x\" -n","description":"d"}}
 exit=2
-stderr=BLOCKED: hook bypass (--no-verify) is forbidden. Fix the failing hook instead.
+stderr=BLOCKED: hook bypass with --no-verify is forbidden. Fix the failing hook instead.
 
 case=git-guard: push --no-verify blocked
 hook=git-guard
 env=CLAUDE_PLUGIN_OPTION_GIT_HANDLING=true
 payload={"session_id":"s","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"git push --no-verify origin feature","description":"d"}}
 exit=2
-stderr=BLOCKED: hook bypass (--no-verify) is forbidden. Fix the failing hook instead.
+stderr=BLOCKED: hook bypass with --no-verify is forbidden. Fix the failing hook instead.
 
 case=git-guard: hook bypass inside a compound command blocked
 hook=git-guard
 env=CLAUDE_PLUGIN_OPTION_GIT_HANDLING=true
 payload={"session_id":"s","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"git add -A && git commit -n -m \"x\" && git log -1","description":"d"}}
 exit=2
-stderr=BLOCKED: hook bypass (--no-verify) is forbidden. Fix the failing hook instead.
+stderr=BLOCKED: hook bypass with --no-verify is forbidden. Fix the failing hook instead.
 
 case=git-guard: --no-verify match is case-insensitive
 hook=git-guard
 env=CLAUDE_PLUGIN_OPTION_GIT_HANDLING=true
 payload={"session_id":"s","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"GIT COMMIT --NO-VERIFY -m x","description":"d"}}
 exit=2
-stderr=BLOCKED: hook bypass (--no-verify) is forbidden. Fix the failing hook instead.
+stderr=BLOCKED: hook bypass with --no-verify is forbidden. Fix the failing hook instead.
 
 case=git-guard: -n inside a double-quoted message allowed
 hook=git-guard
@@ -281,7 +281,7 @@ hook=git-guard
 env=CLAUDE_PLUGIN_OPTION_GIT_HANDLING=true
 payload={"session_id":"s","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"git commit --no-verify -m x","description":"d"}}
 exit=2
-stderr=BLOCKED: hook bypass (--no-verify) is forbidden. Fix the failing hook instead.
+stderr=BLOCKED: hook bypass with --no-verify is forbidden. Fix the failing hook instead.
 
 case=git-guard: plugin option false keeps the guard off despite git.handling on in the project conf
 hook=git-guard
@@ -307,7 +307,7 @@ hook=git-guard
 env=CLAUDE_PLUGIN_OPTION_GIT_HANDLING=true
 payload={"session_id":"s","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"git commit -m x --no-verify","description":"d"}}
 exit=2
-stderr=BLOCKED: hook bypass (--no-verify) is forbidden. Fix the failing hook instead.
+stderr=BLOCKED: hook bypass with --no-verify is forbidden. Fix the failing hook instead.
 
 case=git-guard: unset CLAUDE_PLUGIN_ROOT prints nothing and exits 0
 hook=git-guard

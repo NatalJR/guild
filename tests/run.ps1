@@ -596,7 +596,7 @@ try {
     $nulBytes = [byte[]]@(0x6F, 0x6E, 0x65, 0x0A, 0x74, 0x77, 0x6F, 0x20, 0x00, 0x0A, 0x74, 0x68, 0x72, 0x65, 0x65, 0x20, 0xE2, 0x9C, 0x85, 0x0A)
     [System.IO.File]::WriteAllBytes((Join-Path $directory 'nul.md'), $nulBytes)
     $env:CLAUDE_PROJECT_DIR = $directory
-    Assert-Exit 'emoji-scan' 2 (New-FilePayload (ConvertTo-ForwardSlash (Join-Path $directory 'nul.md'))) 'nul.md at line 3 (first hit)'
+    Assert-Exit 'emoji-scan' 2 (New-FilePayload (ConvertTo-ForwardSlash (Join-Path $directory 'nul.md'))) 'nul.md at line 3, the first hit'
     Reset-Environment
 
     Set-Case 'emoji-scan: uppercase binary extension skipped'
@@ -741,7 +741,7 @@ try {
     Assert-StdoutLacks '{{' 'session-context' @('context/procedure.md')
     Reset-Environment
 
-    # Points CLAUDE_PLUGIN_ROOT at a scratch root whose context/markers.md holds a plain and a
+    # Points CLAUDE_PLUGIN_ROOT at a scratch root whose context/procedure.md holds a plain and a
     # negated block on the same switch.
     $markerRoot = New-ScratchDirectory
     [void][System.IO.Directory]::CreateDirectory((Join-Path $markerRoot 'config'))
@@ -749,13 +749,13 @@ try {
     Copy-Item -LiteralPath (Join-Path $RepoRoot 'config/defaults.conf') -Destination (Join-Path $markerRoot 'config/defaults.conf')
     Copy-HookLibraries $markerRoot
     $markers = (@('head', '{{#if review.security}}', 'plain', '{{/if}}', '{{#if !review.security}}', 'negated', '{{/if}}', 'tail') -join $NL) + $NL
-    [System.IO.File]::WriteAllBytes((Join-Path $markerRoot 'context/markers.md'), $Utf8.GetBytes($markers))
+    [System.IO.File]::WriteAllBytes((Join-Path $markerRoot 'context/procedure.md'), $Utf8.GetBytes($markers))
     Set-Case 'session-context: negated block dropped while its switch is on'
     $env:CLAUDE_PLUGIN_ROOT = $markerRoot
-    Assert-Equal ('head' + $NL + 'plain' + $NL + 'tail') (Invoke-Hook 'session-context' '' @('context/markers.md')).Stdout
+    Assert-Equal ('head' + $NL + 'plain' + $NL + 'tail') (Invoke-Hook 'session-context' '' @('context/procedure.md')).Stdout
     Set-Case 'session-context: negated block kept while its switch is off'
     Use-UserConf 'review.security = off'
-    Assert-Equal ('head' + $NL + 'negated' + $NL + 'tail') (Invoke-Hook 'session-context' '' @('context/markers.md')).Stdout
+    Assert-Equal ('head' + $NL + 'negated' + $NL + 'tail') (Invoke-Hook 'session-context' '' @('context/procedure.md')).Stdout
     Reset-Environment
 
     # ------------------------------------------------------------ render-agents
@@ -797,7 +797,7 @@ try {
     $notice = (Invoke-Hook 'render-agents' '').Stdout
     Assert-Equal ('reviewer.md - model: opus' + $NL + 'reviewer.md + model: sonnet') (Get-AgentsChanges $agentsRoot)
     Set-Case 'render-agents: the notice lists only the agents rendered'
-    Assert-Equal 'GUILD AGENTS RENDERED: reviewer model=sonnet effort=high. Run /reload-plugins to apply.' $notice
+    Assert-Equal 'GUILD AGENTS RENDERED: reviewer model=sonnet effort=high. Run the reload-plugins command to apply.' $notice
     Reset-Environment
 
     Set-Case 'render-agents: invalid values leave every agent file untouched'

@@ -13,6 +13,8 @@ set -u
 
 MODELS='haiku sonnet opus fable inherit'
 EFFORTS='low medium high xhigh max'
+# A backslash as tr reads it: tr takes two for one.
+TR_BACKSLASH=$(printf '\134\134')
 
 # AGENT SETTING: prints the plugin option for the agent's SETTING (model or effort), empty when
 # unset.
@@ -108,7 +110,7 @@ rewrite_frontmatter() {
 
 main() {
   # The trailing slash keeps the bare root out of the argument list; it is stripped again here.
-  plugin_root=$(printf '%s' "$CLAUDE_PLUGIN_ROOT/" | sed 's|\\|/|g')
+  plugin_root=$(printf '%s' "$CLAUDE_PLUGIN_ROOT/" | tr "$TR_BACKSLASH" '/')
   plugin_root=${plugin_root%/}
   # Does nothing when CLAUDE_PLUGIN_ROOT is unset or its hooks directory is missing.
   [ -n "$plugin_root" ] || return 0
@@ -120,7 +122,7 @@ main() {
     render_agent "$agent" || continue
   done
   [ -n "$RENDERED" ] || return 0
-  printf 'GUILD AGENTS RENDERED: %s. Run /reload-plugins to apply.\n' "$RENDERED"
+  printf 'GUILD AGENTS RENDERED: %s. Run the reload-plugins command to apply.\n' "$RENDERED"
 }
 
 (main) 2>/dev/null

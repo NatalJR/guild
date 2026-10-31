@@ -231,6 +231,12 @@ part=context/missing.md
 exit=0
 stdout-equals=
 
+case=session-context: an existing file outside the two parts prints nothing
+hook=session-context
+part=README.md
+exit=0
+stdout-equals=
+
 case=session-context: unset CLAUDE_PLUGIN_ROOT prints nothing and exits 0
 hook=session-context
 part=context/procedure.md

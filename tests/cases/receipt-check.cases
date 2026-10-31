@@ -70,7 +70,7 @@ case=receipt-check: prose blocked with excerpt
 hook=receipt-check
 payload={"session_id":"s","hook_event_name":"SubagentStop","stop_hook_active":false,"agent_type":"guild:builder","last_assistant_message":"I finished the work.\nverified: ok"}
 exit=2
-stderr=Got: "I finished the work.". Rewrite
+stderr=Got: I finished the work.. Rewrite
 
 case=receipt-check: agent type match is case-insensitive
 hook=receipt-check
@@ -107,7 +107,7 @@ case=receipt-check: excerpt capped at 80 characters
 hook=receipt-check
 payload={"session_id":"s","hook_event_name":"SubagentStop","stop_hook_active":false,"agent_type":"guild:builder","last_assistant_message":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
 exit=2
-stderr=Got: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".
+stderr=Got: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.
 
 case=receipt-check: switch off allows
 hook=receipt-check

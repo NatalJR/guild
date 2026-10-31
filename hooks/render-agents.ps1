@@ -152,7 +152,7 @@ try {
     $directory = Join-Path $root 'agents'
     $rendered = @(@(foreach ($agent in $AGENTS) { Get-RenderedAgent $directory $agent }) | Where-Object { $_ -ne '' })
     if ($rendered.Count -gt 0) {
-        Write-HookOutput ('GUILD AGENTS RENDERED: ' + ($rendered -join '; ') + '. Run /reload-plugins to apply.' + "`n")
+        Write-HookOutput ('GUILD AGENTS RENDERED: ' + ($rendered -join '; ') + '. Run the reload-plugins command to apply.' + "`n")
     }
 } catch {
     exit 0

@@ -241,7 +241,7 @@ How a change takes effect:
 
 - **Where to set:** Claude Code shows the options in the prompt when the plugin is installed and later in `/config`, and passes them to the hooks as `CLAUDE_PLUGIN_OPTION_<AGENT>_MODEL` and `CLAUDE_PLUGIN_OPTION_<AGENT>_EFFORT`.
 - **Rendering:** a change is rendered on the next prompt (and at every session start) by `hooks/render-agents.sh`: when an option holds an allowed value that differs from the `model:` or `effort:` line in `<plugin root>/agents/<agent>.md`, that frontmatter line is rewritten in place and nothing else in the file changes.
-- **Notice and reload:** the hook then prints `GUILD AGENTS RENDERED: <agent> model=<m> effort=<e>; ... Run /reload-plugins to apply.`; run `/reload-plugins` to load the rewritten agents in the current session.
+- **Notice and reload:** the hook then prints `GUILD AGENTS RENDERED: <agent> model=<m> effort=<e>; ... Run the reload-plugins command to apply.`; run `/reload-plugins` to load the rewritten agents in the current session.
 - **Safe failure:** an unset or unknown value is ignored, and the hook writes nowhere outside `agents/`. An agent whose rewrite fails is skipped, the others still render, and the notice lists only the agents rendered.
 - **Workflows:** the workflows pass no effort to `guild:*` agents, so these options also hold inside a workflow; only the default correctness agent of `review-wave` takes the workflow's `effort` argument.
 

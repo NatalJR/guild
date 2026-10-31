@@ -5,7 +5,7 @@
 # A malformed payload or an internal error never blocks.
 set -u
 
-RECEIPT_MARKER_PATTERN='^(plan:|verify:|verified:|docs-sync\.|No issues\.|No match\.|[0-9]+ findings\.|too-big\.|too-small\.|needs-confirm\.|ambiguous\.|regressed\.|need-map\.|blocked\.|not-security\.|security-scope\.|Defs:|Refs:|Callers:|Tests:|Sites:|Imports:)'
+RECEIPT_MARKER_PATTERN='^plan:|^verify:|^verified:|^docs-sync[.]|^No issues[.]|^No match[.]|^[0-9]+ findings[.]|^too-big[.]|^too-small[.]|^needs-confirm[.]|^ambiguous[.]|^regressed[.]|^need-map[.]|^blocked[.]|^not-security[.]|^security-scope[.]|^Defs:|^Refs:|^Callers:|^Tests:|^Sites:|^Imports:'
 LOCATION_PATTERN='^[^[:space:]]+:[0-9]+'
 # Internal status meaning "block"; any other status, including a shell error, lets the stop run.
 BLOCK_STATUS=3
@@ -41,7 +41,7 @@ is_receipt_line() {
 
 reject() {
   excerpt=$(printf '%s\n' "$1" | cut -c 1-80)
-  printf 'Receipt contract: your final message must START with a terminal token or a receipt line (plan:, verify:, verified:, docs-sync., No issues., No match., N findings., too-big., too-small., needs-confirm., ambiguous., need-map., blocked., regressed., not-security., security-scope., or a path:line row). Got: "%s". Rewrite your final message with the token on line 1 and stop again.\n' "$excerpt" >&2
+  printf 'Receipt contract: your final message must START with a terminal token or a receipt line, as listed in your agent instructions. Got: %s. Rewrite your final message with the token on line 1 and stop again.\n' "$excerpt" >&2
   exit "$BLOCK_STATUS"
 }
 

@@ -7,7 +7,7 @@
 Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
 
-$REINFORCEMENT = 'GUILD DEFAULT MODE: replies at most six lines, universal code rules, coding requests walk the operating procedure in session context (no slash command).'
+$REINFORCEMENT = 'GUILD DEFAULT MODE: replies at most six lines, universal code rules, coding requests walk the operating procedure in session context, no slash command.'
 
 # ROOT: true when ROOT is non-empty and its hooks directory exists; like its sh twin, the hook
 # does nothing otherwise.

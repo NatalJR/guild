@@ -49,7 +49,7 @@ hook=render-agents
 agents-copy=yes
 env=CLAUDE_PLUGIN_OPTION_BUILDER_MODEL=sonnet
 exit=0
-stdout-equals=GUILD AGENTS RENDERED: builder model=sonnet effort=medium. Run /reload-plugins to apply.
+stdout-equals=GUILD AGENTS RENDERED: builder model=sonnet effort=medium. Run the reload-plugins command to apply.
 
 case=render-agents: model and effort of one agent in one run
 hook=render-agents
@@ -57,7 +57,7 @@ agents-copy=yes
 env=CLAUDE_PLUGIN_OPTION_REVIEWER_MODEL=sonnet
 env=CLAUDE_PLUGIN_OPTION_REVIEWER_EFFORT=low
 exit=0
-stdout-equals=GUILD AGENTS RENDERED: reviewer model=sonnet effort=low. Run /reload-plugins to apply.
+stdout-equals=GUILD AGENTS RENDERED: reviewer model=sonnet effort=low. Run the reload-plugins command to apply.
 
 case=render-agents: several agents listed in agent order
 hook=render-agents
@@ -65,7 +65,7 @@ agents-copy=yes
 env=CLAUDE_PLUGIN_OPTION_SCRIBE_EFFORT=max
 env=CLAUDE_PLUGIN_OPTION_INVESTIGATOR_MODEL=inherit
 exit=0
-stdout-equals=GUILD AGENTS RENDERED: investigator model=inherit effort=medium; scribe model=sonnet effort=max. Run /reload-plugins to apply.
+stdout-equals=GUILD AGENTS RENDERED: investigator model=inherit effort=medium; scribe model=sonnet effort=max. Run the reload-plugins command to apply.
 
 case=render-agents: values equal to the frontmatter print nothing
 hook=render-agents
@@ -116,7 +116,7 @@ agents-copy=yes
 env=CLAUDE_PLUGIN_OPTION_BUILDER_MODEL=gpt
 env=CLAUDE_PLUGIN_OPTION_BUILDER_EFFORT=low
 exit=0
-stdout-equals=GUILD AGENTS RENDERED: builder model=opus effort=low. Run /reload-plugins to apply.
+stdout-equals=GUILD AGENTS RENDERED: builder model=opus effort=low. Run the reload-plugins command to apply.
 
 case=render-agents: unset plugin root prints nothing
 hook=render-agents

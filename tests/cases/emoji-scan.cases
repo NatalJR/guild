@@ -45,7 +45,7 @@ case=emoji-scan: emoji blocked at line 3
 hook=emoji-scan
 payload={"session_id":"s","hook_event_name":"PostToolUse","tool_name":"Write","tool_input":{"file_path":"%FIXTURES%/project/emoji.md","content":"x"},"tool_response":{"filePath":"%FIXTURES%/project/emoji.md"}}
 exit=2
-stderr=emoji.md at line 3 (first hit)
+stderr=emoji.md at line 3, the first hit
 
 case=emoji-scan: png skipped
 hook=emoji-scan

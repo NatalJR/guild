@@ -151,7 +151,7 @@ report_violation() {
   if [ "$1" -eq "$ATTRIBUTION_FOUND" ]; then
     echo 'BLOCKED: AI attribution in a git artifact is forbidden. Remove the trailer/footer and retry.' >&2
   elif [ "$1" -eq "$NO_VERIFY_FOUND" ]; then
-    echo 'BLOCKED: hook bypass (--no-verify) is forbidden. Fix the failing hook instead.' >&2
+    echo 'BLOCKED: hook bypass with --no-verify is forbidden. Fix the failing hook instead.' >&2
   elif [ "$1" -eq "$FORCE_PUSH_FOUND" ]; then
     echo 'BLOCKED: forced push is forbidden. Use --force-with-lease only inside the PR update sequence.' >&2
   else

@@ -48,7 +48,7 @@ $PLAIN_QUOTED_TEXT = '[^' + $DOUBLE_QUOTE + $ESCAPED_BACKSLASH + ']*'
 $DOUBLE_QUOTED_SPAN = $DOUBLE_QUOTE + $PLAIN_QUOTED_TEXT + '(' + $ESCAPED_BACKSLASH + '.' + $PLAIN_QUOTED_TEXT + ')*' + $DOUBLE_QUOTE
 $SINGLE_QUOTED_SPAN = $SINGLE_QUOTE + '[^' + $SINGLE_QUOTE + ']*' + $SINGLE_QUOTE
 $ATTRIBUTION_MESSAGE = 'BLOCKED: AI attribution in a git artifact is forbidden. Remove the trailer/footer and retry.'
-$NO_VERIFY_MESSAGE = 'BLOCKED: hook bypass (--no-verify) is forbidden. Fix the failing hook instead.'
+$NO_VERIFY_MESSAGE = 'BLOCKED: hook bypass with --no-verify is forbidden. Fix the failing hook instead.'
 $FORCE_PUSH_MESSAGE = 'BLOCKED: forced push is forbidden. Use --force-with-lease only inside the PR update sequence.'
 $GIT_HANDLING_ON_VALUES = @('1', 'on', 'true', 'yes')
 

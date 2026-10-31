@@ -10,11 +10,11 @@
 Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
 
-$RECEIPT_MARKER_PATTERN = '^(plan:|verify:|verified:|docs-sync\.|no issues\.|no match\.|[0-9]+ findings\.|too-big\.|too-small\.|needs-confirm\.|ambiguous\.|regressed\.|need-map\.|blocked\.|not-security\.|security-scope\.|defs:|refs:|callers:|tests:|sites:|imports:)'
+$RECEIPT_MARKER_PATTERN = '^plan:|^verify:|^verified:|^docs-sync[.]|^no issues[.]|^no match[.]|^[0-9]+ findings[.]|^too-big[.]|^too-small[.]|^needs-confirm[.]|^ambiguous[.]|^regressed[.]|^need-map[.]|^blocked[.]|^not-security[.]|^security-scope[.]|^defs:|^refs:|^callers:|^tests:|^sites:|^imports:'
 $LOCATION_PATTERN = '^[^ \t\n\v\f\r]+:[0-9]+'
 $EXCERPT_BYTES = 80
-$REJECT_PREFIX = 'Receipt contract: your final message must START with a terminal token or a receipt line (plan:, verify:, verified:, docs-sync., No issues., No match., N findings., too-big., too-small., needs-confirm., ambiguous., need-map., blocked., regressed., not-security., security-scope., or a path:line row). Got: "'
-$REJECT_SUFFIX = '". Rewrite your final message with the token on line 1 and stop again.' + "`n"
+$REJECT_PREFIX = 'Receipt contract: your final message must START with a terminal token or a receipt line, as listed in your agent instructions. Got: '
+$REJECT_SUFFIX = '. Rewrite your final message with the token on line 1 and stop again.' + "`n"
 
 function Add-Bytes([System.IO.MemoryStream]$Buffer, [byte[]]$Bytes) {
     $Buffer.Write($Bytes, 0, $Bytes.Length)
