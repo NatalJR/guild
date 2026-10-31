@@ -114,9 +114,13 @@ _guild_config_parse() {
   _guild_is_name "$_guild_name" && _guild_parse_state "$_guild_trimmed"
 }
 
+# Sets _guild_trimmed to TEXT without its leading and trailing whitespace runs.
+# Two steps per side: the directory validator cannot follow a parameter expansion nested in another.
 _guild_trim() {
-  _guild_trimmed=${1#"${1%%[![:space:]]*}"}
-  _guild_trimmed=${_guild_trimmed%"${_guild_trimmed##*[![:space:]]}"}
+  _guild_lead=${1%%[![:space:]]*}
+  _guild_trimmed=${1#"$_guild_lead"}
+  _guild_tail=${_guild_trimmed##*[![:space:]]}
+  _guild_trimmed=${_guild_trimmed%"$_guild_tail"}
 }
 
 # Succeeds when NAME starts with a lowercase letter and holds only [a-z0-9_.].
