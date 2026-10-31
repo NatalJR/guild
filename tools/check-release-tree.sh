@@ -14,14 +14,37 @@
 # - a quote nested inside a double-quoted string (a `"` inside a `${ }` inside `"..."`)
 # - a lone quote literal, `'"'` or `"'"`
 # - `$PWD` or `${!`
+# - .ps1 (any case): a dot-source (a lone `.` at the line start or after `{`, `;`, `(`, `|` or
+#   `=`, then optional blanks and `(`, `$`, a quote, a slash, a backslash or `~`, or blanks and a
+#   path character), Import-Module, the call operator `&` followed by `(`, `$` or a quote,
+#   Invoke-Expression, or `iex` as a command word (see below), [scriptblock]::Create under any
+#   namespace prefix, Invoke-Command
+# - .sh, .ps1: `GetEnvironmentVariable(` not followed (after optional blanks) by a single quote,
+#   or `GetEnvironmentVariables(` (any case)
+# - .ps1 (any case): an Env: provider read through Get-ChildItem, Get-Item, Get-Content, gci, gi,
+#   dir, ls or gc (an `env:` not preceded by `$`), and an `env:` path built by concatenation
+#   (`'env:' +`, `"env:$`); `$env:NAME` stays allowed
+# - .sh: `env`, `printenv` or `eval` as a command word (line start, after `;`, `|`, `&`, `(`,
+#   a backtick, `{` or `!`, or after the word then, do, else, if, elif, while, until or exec)
+# - hooks/*.sh, hooks/*.ps1: the text `defaults.conf` or `hooks/lib/`
 # - .sh, .ps1, .js: an identifier containing key, token, secret, password, cred or auth
 #   (any case); whole-line comments are skipped in .ps1 and .js
 # - every shipped text file but the .claude-plugin manifests: a URL (`://`), except one
 #   repository link in README.md
 # - the scripts the PreToolUse entry of hooks/hooks.json runs: the words allow, approve or
-#   permissionDecision (any case), and in .sh any printf whose line holds a `%` and any backslash
-#   outside an awk regex literal
+#   permissionDecision (any case); in .sh any printf whose line holds a `%` and any backslash
+#   outside an awk regex literal; in .ps1 any backslash, backtick or `%`, the `-f` operator as a
+#   standalone token, and the stdout writers Write-Output, Write-Host, Write-Information,
+#   Write-Warning, Tee-Object, echo, `write` and `tee` as command words, Out-Host, Out-Default,
+#   [Console]::Out and [Console]::Write* under any namespace prefix of Console, $Host.UI.Write*
+#   and OpenStandardOutput (any case). A .ps1 command word starts a statement or pipeline element
+#   (line start, or after `;`, `|`, `{`, `(` or `=`, then optional blanks) and is followed by a
+#   blank, `(` or the line end, so a `.Write(` member call does not match. Known limit: uncaptured
+#   expression output (a bare value, or a call whose result is neither assigned nor discarded)
+#   also reaches stdout and cannot be detected by pattern; the hook's tests measuring 0 stdout
+#   bytes cover it.
 # - README.md: a `$` followed by a letter or `{`
+# A line reports each rule at most once.
 # Dependencies: sh, awk, find.
 set -u
 
@@ -76,6 +99,69 @@ shell_rules() {
 
 nested_quotes_in_tree() {
   find . -type f -name '*.sh' -exec sh "$SELF" --nested-quotes {} +
+}
+
+# .ps1: a line that loads another file or runs code built at run time. A dot-source is a lone `.`
+# at a statement or pipeline element start; member access (`$a.b`) never puts one there, and a
+# decimal (`.5`) has a digit right after the dot, so neither matches. `&&` is not a call operator.
+powershell_loads() {
+  find . -type f -name '*.ps1' -exec awk '
+    function report(rule) { print FILENAME ":" FNR ": " rule }
+    { sub(/\r$/, ""); line = tolower($0) }
+    line ~ /(^|[{;(|=])[ \t]*[.]([ \t]*[($"\047\\\/~]|[ \t]+[a-z0-9_.])/ { report("dot-source") }
+    index(line, "import-module") { report("Import-Module") }
+    line ~ /(^|[^&])&[ \t]*[($"\047]/ { report("call operator") }
+    line ~ /(^|[^a-z0-9_-])invoke-expression([^a-z0-9_-]|$)/ { report("Invoke-Expression") }
+    line ~ /(^|[{;(|=])[ \t]*iex([ \t(]|$)/ { report("Invoke-Expression") }
+    line ~ /\[[ \t]*([a-z0-9_]+[.])*scriptblock[ \t]*\][ \t]*::[ \t]*create/ { report("[scriptblock]::Create") }
+    line ~ /(^|[^a-z0-9_-])invoke-command([^a-z0-9_-]|$)/ { report("Invoke-Command") }
+  ' {} +
+}
+
+# .sh, .ps1: an environment read whose name is not a single-quoted literal, or a read of the
+# whole environment. `$env:NAME` in .ps1 is a literal read; an `env:` the provider cmdlets or a
+# concatenation reach is not.
+environment_reads() {
+  find . -type f \( -name '*.sh' -o -name '*.ps1' \) -exec awk '
+    BEGIN {
+      q = "\047"; single_read = "getenvironmentvariable("
+      command_start = "(^|[;|&(`{!]|(^|[^A-Za-z0-9_])(then|do|else|if|elif|while|until|exec)[ \t])"
+      sh_environment_command = command_start "[ \t]*(env|printenv|eval)([ \t;|&)`]|$)"
+    }
+    function report(rule) { print FILENAME ":" FNR ": " rule }
+    { sub(/\r$/, ""); line = tolower($0) }
+    { dotnet_reads(line) }
+    FILENAME ~ /[.]ps1$/ { provider_reads(line) }
+    FILENAME ~ /[.]sh$/ && $0 ~ sh_environment_command { report("environment command") }
+    # LINE (lowercased): .NET reads, the single-name one checked for a single-quoted literal.
+    function dotnet_reads(line,   rest, at, name) {
+      rest = line
+      if (index(rest, "getenvironmentvariables(")) report("whole-environment read")
+      while ((at = index(rest, single_read)) > 0) {
+        rest = substr(rest, at + length(single_read))
+        name = rest
+        sub(/^[ \t]*/, "", name)
+        if (substr(name, 1, 1) != q) { report("environment read without a literal name"); break }
+      }
+    }
+    # LINE (lowercased): Env: provider reads through a cmdlet, and env: paths built at run time.
+    function provider_reads(line) {
+      if (line ~ /(^|[^a-z0-9_$-])(get-childitem|get-item|get-content|gci|gi|dir|ls|gc)[ \t(](.*[^a-z0-9_$])?env:/)
+        report("Env: provider read")
+      if (line ~ /[\047"]env:[\047"][ \t]*[+]/ || index(line, "\"env:$")) report("built Env: path")
+    }
+  ' {} +
+}
+
+# hooks/*.sh, hooks/*.ps1: a name of the defaults file or of the library directory, both of which
+# the build compiles away.
+hook_references() {
+  [ -d hooks ] || return 0
+  find ./hooks -type f \( -name '*.sh' -o -name '*.ps1' \) -exec awk '
+    FILENAME !~ /^[.]\/hooks\/[^\/]+$/ { next }
+    index($0, "defaults.conf") { print FILENAME ":" FNR ": names defaults.conf" }
+    index($0, "hooks/lib/") { print FILENAME ":" FNR ": names hooks/lib/" }
+  ' {} +
 }
 
 # .sh, .ps1, .js: identifiers that read as credentials. A word counts as an identifier when it
@@ -153,6 +239,25 @@ pre_tool_use_rules() {
         report("PreToolUse printf with %")
       }
       FILENAME ~ /[.]sh$/ && index(outside_regex_literals($0), "\\") { report("PreToolUse backslash") }
+      FILENAME ~ /[.]ps1$/ { powershell_rules(tolower($0)) }
+      # LINE (lowercased): the characters and calls a .ps1 PreToolUse script must not hold.
+      function powershell_rules(line) {
+        if (index(line, "\\")) report("PreToolUse backslash")
+        if (index(line, "`")) report("PreToolUse backtick")
+        if (index(line, "%")) report("PreToolUse %")
+        if (line ~ /(^|[ \t])-f([ \t]|$)/) report("PreToolUse -f operator")
+        if (writes_stdout(line)) report("PreToolUse stdout writer")
+      }
+      # LINE (lowercased): a named stdout writer. Uncaptured expression output also reaches
+      # stdout but has no name to match; the hook tests measuring 0 stdout bytes cover it.
+      function writes_stdout(line) {
+        if (line ~ /write-(output|host|information|warning)|tee-object|out-(host|default)/) return 1
+        if (index(line, "openstandardoutput")) return 1
+        if (line ~ /(^|[;|{(=])[ \t]*(write|tee)([ \t(]|$)/) return 1
+        if (line ~ /(^|[^a-z0-9_$-])echo([^a-z0-9_-]|$)/) return 1
+        if (line ~ /\[[ \t]*([a-z0-9_]+[.])*console[ \t]*\][ \t]*::[ \t]*(out([^a-z]|$)|write)/) return 1
+        return line ~ /[$]host[ \t]*[.][ \t]*ui[ \t]*[.][ \t]*write/
+      }
       # TEXT without its awk regex literals: a / after the line start, a blank, a single quote or
       # one of ( , ~ ! { & |, up to the next unescaped /.
       function outside_regex_literals(text) {
@@ -168,17 +273,23 @@ readme_variables() {
   awk '/[$][A-Za-z{]/ { print FILENAME ":" FNR ": README variable" }' ./README.md
 }
 
+all_rules() {
+  shell_rules
+  nested_quotes_in_tree
+  powershell_loads
+  environment_reads
+  hook_references
+  credential_identifiers
+  urls
+  pre_tool_use_rules
+  readme_variables
+}
+
+# DIR: every rule over DIR, each `file:line: rule` printed once.
 check_tree() {
   [ -d "$1" ] || { printf 'check-release-tree: not a directory: %s\n' "$1" >&2; return 2; }
   cd "$1" || return 2
-  violations=$(
-    shell_rules
-    nested_quotes_in_tree
-    credential_identifiers
-    urls
-    pre_tool_use_rules
-    readme_variables
-  )
+  violations=$(all_rules | awk '!reported[$0]++')
   [ -z "$violations" ] && return 0
   printf '%s\n' "$violations"
   return 1
