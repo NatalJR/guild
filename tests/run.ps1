@@ -1,7 +1,7 @@
 # Hook contract suite for the PowerShell twins (hooks/*.ps1). Runs every shared case in
 # tests/cases/*.cases (format at the top of each file) plus the coded cases that mirror
 # tests/run.sh, and prints the same PASS/FAIL summary; exit 1 on any failure.
-# Usage, from any directory: pwsh -NoProfile -File tests/run.ps1
+# Usage, from any directory: pwsh -NoProfile -File tests/run.ps1 [-PluginRoot DIR]
 # Each hook runs in a child process of the PowerShell running this script, so
 # `powershell -NoProfile -File tests/run.ps1` checks Windows PowerShell 5.1 the same way.
 # Library and config cases dot-source hooks/lib/*.ps1 in this process. Variables are removed
@@ -12,13 +12,33 @@
 # never the repository's files; Reset-Environment also clears every
 # CLAUDE_PLUGIN_OPTION_<AGENT>_MODEL / _EFFORT. The hooks dot-source their libraries from
 # $env:CLAUDE_PLUGIN_ROOT\hooks\lib only, so every scratch root a hook runs against also holds a
-# copy of hooks/lib/.
+# copy of hooks/lib/ (source layout only).
+# `-PluginRoot DIR` runs the shared cases and the hooks.json and hooks/ layout checks against
+# DIR/hooks (a release tree), with CLAUDE_PLUGIN_ROOT=DIR, plus the payload library tests; the
+# runner's own library helpers still load from this repository.
+param([string]$PluginRoot = '')
 Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
 
+# ROOT: true when ROOT is a directory holding hooks/hooks.json.
+function Test-PluginRootTree([string]$Root) {
+    if ($Root -eq '' -or -not (Test-Path -LiteralPath $Root -PathType Container)) { return $false }
+    return Test-Path -LiteralPath (Join-Path $Root 'hooks/hooks.json') -PathType Leaf
+}
+
 $TestsDirectory = $PSScriptRoot
 $RepoRoot = [System.IO.Path]::GetFullPath($PSScriptRoot + '/..')
-$Hooks = Join-Path $RepoRoot 'hooks'
+$PluginRootGiven = $PSBoundParameters.ContainsKey('PluginRoot')
+if ($PluginRootGiven) {
+    if (-not (Test-PluginRootTree $PluginRoot)) {
+        [Console]::Error.WriteLine('run.ps1: plugin root [' + $PluginRoot + '] is missing or has no hooks/hooks.json')
+        exit 2
+    }
+    $PluginRoot = (Resolve-Path -LiteralPath $PluginRoot).ProviderPath
+} else {
+    $PluginRoot = $RepoRoot
+}
+$Hooks = Join-Path $PluginRoot 'hooks'
 $Fixtures = Join-Path $TestsDirectory 'fixtures'
 $FixtureProject = Join-Path $Fixtures 'project'
 $FixtureHome = Join-Path $Fixtures 'home'
@@ -32,8 +52,8 @@ $Failed = 0
 $CaseName = ''
 $ScratchSequence = 0
 
-. (Join-Path $Hooks 'lib/payload.ps1')
-. (Join-Path $Hooks 'lib/config.ps1')
+. (Join-Path $RepoRoot 'hooks/lib/payload.ps1')
+. (Join-Path $RepoRoot 'hooks/lib/config.ps1')
 
 # ---------------------------------------------------------------- harness
 
@@ -52,6 +72,15 @@ function Add-Pass {
 function Add-Failure([string]$Reason) {
     $script:Failed++
     Write-Line ('FAIL: ' + $script:CaseName + $NL + '      ' + $Reason)
+}
+
+# Prints the summary and exits 0 when no case failed, else 1.
+function Exit-Suite {
+    $summary = [string]$script:Passed + ' passed, ' + $script:Failed + ' failed'
+    if ($PluginRootGiven) { $summary += ' (shared cases and layout checks only, plugin root ' + $PluginRoot + ')' }
+    Write-Line $summary
+    if ($script:Failed -ne 0) { exit 1 }
+    exit 0
 }
 
 function ConvertTo-ForwardSlash([string]$Path) {
@@ -199,7 +228,7 @@ function Read-CaseFile([string]$Path) {
 # VALUE with the case-file placeholders replaced.
 function Expand-Placeholders([string]$Value) {
     $project = ConvertTo-ForwardSlash ([string]$env:CLAUDE_PROJECT_DIR)
-    return $Value.Replace('%NL%', $NL).Replace('%FIXTURES%', (ConvertTo-ForwardSlash $Fixtures)).Replace('%PROJECT%', $project).Replace('%ROOT%', (ConvertTo-ForwardSlash $RepoRoot))
+    return $Value.Replace('%NL%', $NL).Replace('%FIXTURES%', (ConvertTo-ForwardSlash $Fixtures)).Replace('%PROJECT%', $project).Replace('%ROOT%', (ConvertTo-ForwardSlash $PluginRoot))
 }
 
 # RECORD: runs one record; empty when it passes, else the reason.
@@ -325,7 +354,7 @@ function Use-ProjectConf([string]$Content) {
 }
 
 function Reset-Environment {
-    $env:CLAUDE_PLUGIN_ROOT = $RepoRoot
+    $env:CLAUDE_PLUGIN_ROOT = $PluginRoot
     $env:CLAUDE_PROJECT_DIR = $FixtureProject
     $env:HOME = $FixtureHome
     [System.Environment]::SetEnvironmentVariable('CLAUDE_PLUGIN_OPTION_GIT_HANDLING', [NullString]::Value)
@@ -340,16 +369,19 @@ function Clear-AgentOptions {
     }
 }
 
-# ROOT: copies hooks/lib/ into the scratch plugin root ROOT, where the hooks dot-source it from.
+# ROOT: copies hooks/lib/ of the plugin root under test into the scratch plugin root ROOT, where
+# the hooks dot-source it from; a plugin root without hooks/lib (a release tree) copies nothing.
 function Copy-HookLibraries([string]$Root) {
     [void][System.IO.Directory]::CreateDirectory((Join-Path $Root 'hooks'))
-    Copy-Item -LiteralPath (Join-Path $Hooks 'lib') -Destination (Join-Path $Root 'hooks/lib') -Recurse
+    $libraries = Join-Path $Hooks 'lib'
+    if (-not [System.IO.Directory]::Exists($libraries)) { return }
+    Copy-Item -LiteralPath $libraries -Destination (Join-Path $Root 'hooks/lib') -Recurse
 }
 
 # Points CLAUDE_PLUGIN_ROOT at a scratch root holding a copy of agents/; returns the root.
 function Use-AgentsRoot {
     $directory = New-ScratchDirectory
-    Copy-Item -LiteralPath (Join-Path $RepoRoot 'agents') -Destination (Join-Path $directory 'agents') -Recurse
+    Copy-Item -LiteralPath (Join-Path $PluginRoot 'agents') -Destination (Join-Path $directory 'agents') -Recurse
     Copy-HookLibraries $directory
     $env:CLAUDE_PLUGIN_ROOT = $directory
     return $directory
@@ -496,6 +528,32 @@ try {
         if (-not [System.IO.File]::Exists((Join-Path $TestsDirectory ('cases/' + $twin.BaseName + '.cases')))) { $twin.Name }
     }
     Assert-Equal '' (@($missingCaseFiles) -join $NL)
+
+    # ------------------------------------------------------------ hooks.json wiring
+
+    $hooksJson = $Utf8.GetString([System.IO.File]::ReadAllBytes((Join-Path $Hooks 'hooks.json')))
+    $wiredScripts = @([regex]::Matches($hooksJson, '/hooks/([A-Za-z0-9_-]+\.sh)\\"') | ForEach-Object { $_.Groups[1].Value })
+    $wiredTwins = @([regex]::Matches($hooksJson, '/hooks/([A-Za-z0-9_-]+\.ps1)\\"') | ForEach-Object { $_.Groups[1].Value })
+    $polyglotPattern = '"command": "exec sh \\"\$\{CLAUDE_PLUGIN_ROOT\}/hooks/([A-Za-z0-9_-]+)\.sh\\"([^"\\]*)\\n& \\"\$\{CLAUDE_PLUGIN_ROOT\}/hooks/\1\.ps1\\"\2; exit \$LASTEXITCODE"'
+    Set-Case 'hooks.json: every command runs an existing sh script'
+    Assert-Equal '' (@($wiredScripts | Where-Object { -not [System.IO.File]::Exists((Join-Path $Hooks $_)) }) -join $NL)
+    Set-Case 'hooks.json: eight script references found'
+    Assert-Equal '8' ([string]$wiredScripts.Count)
+    Set-Case 'hooks.json: every command names an existing PowerShell twin'
+    Assert-Equal '' (@($wiredTwins | Where-Object { -not [System.IO.File]::Exists((Join-Path $Hooks $_)) }) -join $NL)
+    Set-Case 'hooks.json: eight commands, all the sh/PowerShell polyglot'
+    Assert-Equal '8 8' ([string][regex]::Matches($hooksJson, '"command":').Count + ' ' + [regex]::Matches($hooksJson, $polyglotPattern).Count)
+    Set-Case 'hooks.json: render-agents wired once on SessionStart and once on UserPromptSubmit'
+    Assert-Equal '2' ([string]@($wiredScripts | Where-Object { $_ -ceq 'render-agents.sh' }).Count)
+    Set-Case 'hooks.json: no pwsh -File line'
+    Assert-Equal '0' ([string][regex]::Matches($hooksJson, 'pwsh -NoProfile -File').Count)
+    Set-Case 'hooks.json: no shell field'
+    Assert-Equal '0' ([string][regex]::Matches($hooksJson, '"shell"').Count)
+
+    # The coded cases below load hooks/lib or need files only the repository holds; a plugin
+    # root under test stops after the shared cases and the layout checks above. Exit-Suite exits
+    # from inside this try, so the finally block still clears Scratch.
+    if ($PluginRootGiven) { Exit-Suite }
 
     # ------------------------------------------------------------ emoji-scan
 
@@ -749,31 +807,8 @@ try {
     $env:CLAUDE_PLUGIN_OPTION_SCRIBE_MODEL = 'sonnet/;s/^/x/'
     Assert-Equal '' ((Invoke-Hook 'render-agents' '').Stdout + (Get-AgentsChanges $agentsRoot))
     Reset-Environment
-
-    # ------------------------------------------------------------ hooks.json wiring
-
-    $hooksJson = $Utf8.GetString([System.IO.File]::ReadAllBytes((Join-Path $Hooks 'hooks.json')))
-    $wiredScripts = @([regex]::Matches($hooksJson, '/hooks/([A-Za-z0-9_-]+\.sh)\\"') | ForEach-Object { $_.Groups[1].Value })
-    $wiredTwins = @([regex]::Matches($hooksJson, '/hooks/([A-Za-z0-9_-]+\.ps1)\\"') | ForEach-Object { $_.Groups[1].Value })
-    $polyglotPattern = '"command": "exec sh \\"\$\{CLAUDE_PLUGIN_ROOT\}/hooks/([A-Za-z0-9_-]+)\.sh\\"([^"\\]*)\\n& \\"\$\{CLAUDE_PLUGIN_ROOT\}/hooks/\1\.ps1\\"\2; exit \$LASTEXITCODE"'
-    Set-Case 'hooks.json: every command runs an existing sh script'
-    Assert-Equal '' (@($wiredScripts | Where-Object { -not [System.IO.File]::Exists((Join-Path $Hooks $_)) }) -join $NL)
-    Set-Case 'hooks.json: eight script references found'
-    Assert-Equal '8' ([string]$wiredScripts.Count)
-    Set-Case 'hooks.json: every command names an existing PowerShell twin'
-    Assert-Equal '' (@($wiredTwins | Where-Object { -not [System.IO.File]::Exists((Join-Path $Hooks $_)) }) -join $NL)
-    Set-Case 'hooks.json: eight commands, all the sh/PowerShell polyglot'
-    Assert-Equal '8 8' ([string][regex]::Matches($hooksJson, '"command":').Count + ' ' + [regex]::Matches($hooksJson, $polyglotPattern).Count)
-    Set-Case 'hooks.json: render-agents wired once on SessionStart and once on UserPromptSubmit'
-    Assert-Equal '2' ([string]@($wiredScripts | Where-Object { $_ -ceq 'render-agents.sh' }).Count)
-    Set-Case 'hooks.json: no pwsh -File line'
-    Assert-Equal '0' ([string][regex]::Matches($hooksJson, 'pwsh -NoProfile -File').Count)
-    Set-Case 'hooks.json: no shell field'
-    Assert-Equal '0' ([string][regex]::Matches($hooksJson, '"shell"').Count)
 } finally {
     if ([System.IO.Directory]::Exists($Scratch)) { Remove-Item -LiteralPath $Scratch -Recurse -Force }
 }
 
-Write-Line ([string]$Passed + ' passed, ' + $Failed + ' failed')
-if ($Failed -ne 0) { exit 1 }
-exit 0
+Exit-Suite

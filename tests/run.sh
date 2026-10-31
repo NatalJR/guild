@@ -2,6 +2,9 @@
 # Hook contract suite: pipes JSON payloads into the hooks and asserts exit codes, stderr and
 # stdout. POSIX sh with no dependencies; runs as `sh tests/run.sh` under Git Bash's sh and
 # under dash from the same checkout (every path is derived from this script's location).
+# `sh tests/run.sh --plugin-root DIR` runs the shared cases and the hooks.json and hooks/ layout
+# checks against DIR/hooks (a release tree), with CLAUDE_PLUGIN_ROOT=DIR, plus the payload
+# library tests; the runner's own library helpers still load from this repository.
 # The payload-driven cases live in tests/cases/*.cases (format at the top of each file) and are
 # shared with tests/run.ps1, which runs them against the PowerShell twins; the cases that need
 # code (scratch roots, crafted bytes, library calls, config queries) stay below, and the ones
@@ -13,7 +16,7 @@
 # against a scratch copy of agents/ (CLAUDE_PLUGIN_ROOT pointed at it), never the repository's
 # files; reset_env also clears every CLAUDE_PLUGIN_OPTION_<AGENT>_MODEL / _EFFORT. The hooks
 # source their libraries from ${CLAUDE_PLUGIN_ROOT}/hooks/lib only, so every scratch root a hook
-# runs against also holds a copy of hooks/lib/.
+# runs against also holds a copy of hooks/lib/ (source layout only).
 set -u
 
 case "$0" in
@@ -22,12 +25,35 @@ case "$0" in
 esac
 TESTS_DIR=$(CDPATH='' cd -- "$tests_dir" && pwd) || exit 1
 REPO_ROOT=$(CDPATH='' cd -- "$TESTS_DIR/.." && pwd) || exit 1
-HOOKS="$REPO_ROOT/hooks"
+
+# --plugin-root DIR: the shared cases and the layout checks, against DIR/hooks with
+# CLAUDE_PLUGIN_ROOT=DIR.
+PLUGIN_ROOT_GIVEN=no
+PLUGIN_ROOT=$REPO_ROOT
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --plugin-root)
+      [ "$#" -ge 2 ] || { printf 'run.sh: --plugin-root needs a directory\n' >&2; exit 2; }
+      PLUGIN_ROOT_GIVEN=yes
+      PLUGIN_ROOT=$2
+      shift 2
+      ;;
+    *) printf 'run.sh: unknown argument [%s]\n' "$1" >&2; exit 2 ;;
+  esac
+done
+if [ "$PLUGIN_ROOT_GIVEN" = yes ]; then
+  [ -d "$PLUGIN_ROOT" ] && [ -f "$PLUGIN_ROOT/hooks/hooks.json" ] || {
+    printf 'run.sh: plugin root [%s] is missing or has no hooks/hooks.json\n' "$PLUGIN_ROOT" >&2
+    exit 2
+  }
+  PLUGIN_ROOT=$(CDPATH='' cd -- "$PLUGIN_ROOT" && pwd) || exit 2
+fi
+HOOKS="$PLUGIN_ROOT/hooks"
 FIXTURES="$TESTS_DIR/fixtures"
 FIXTURE_PROJECT="$FIXTURES/project"
 FIXTURE_HOME="$FIXTURES/home"
 
-CLAUDE_PLUGIN_ROOT=$REPO_ROOT
+CLAUDE_PLUGIN_ROOT=$PLUGIN_ROOT
 CLAUDE_PROJECT_DIR=$FIXTURE_PROJECT
 HOME=$FIXTURE_HOME
 export CLAUDE_PLUGIN_ROOT CLAUDE_PROJECT_DIR HOME
@@ -70,6 +96,17 @@ fail() {
 contains() {
   case "$1" in *"$2"*) return 0 ;; esac
   return 1
+}
+
+# Prints the summary and exits 0 when no case failed, else 1.
+finish() {
+  if [ "$PLUGIN_ROOT_GIVEN" = yes ]; then
+    printf '%s passed, %s failed (shared cases and layout checks only, plugin root %s)\n' "$PASSED" "$FAILED" "$PLUGIN_ROOT"
+  else
+    printf '%s passed, %s failed\n' "$PASSED" "$FAILED"
+  fi
+  [ "$FAILED" -eq 0 ] && exit 0
+  exit 1
 }
 
 # HOOK PAYLOAD [ARG...]: sets RUN_EXIT, RUN_STDOUT, RUN_STDERR.
@@ -227,7 +264,7 @@ apply_agents_copy() {
     *) printf 'agents-copy= takes yes, got [%s]' "$CASE_AGENTS_COPY"; return 1 ;;
   esac
   case_scratch_dir agents
-  cp -R "$REPO_ROOT/agents" "$CASE_DIR/agents" && copy_hook_libraries "$CASE_DIR" && CLAUDE_PLUGIN_ROOT=$CASE_DIR
+  cp -R "$PLUGIN_ROOT/agents" "$CASE_DIR/agents" && copy_hook_libraries "$CASE_DIR" && CLAUDE_PLUGIN_ROOT=$CASE_DIR
 }
 
 # MODE LINES: applies each newline-terminated NAME=value (MODE set) or NAME (MODE unset).
@@ -283,7 +320,7 @@ expand_placeholders() {
   replace_all "$1" '%NL%' "$NL"
   replace_all "$REPLACED" '%FIXTURES%' "$FIXTURES"
   replace_all "$REPLACED" '%PROJECT%' "${CLAUDE_PROJECT_DIR:-}"
-  replace_all "$REPLACED" '%ROOT%' "$REPO_ROOT"
+  replace_all "$REPLACED" '%ROOT%' "$PLUGIN_ROOT"
   EXPANDED=$REPLACED
 }
 
@@ -321,13 +358,16 @@ use_project_conf() {
   CLAUDE_PROJECT_DIR=$SCRATCH_DIR
 }
 
-# ROOT: copies hooks/lib/ into the scratch plugin root ROOT, where the hooks source it from.
+# ROOT: copies hooks/lib/ of the plugin root under test into the scratch plugin root ROOT, where
+# the hooks source it from; a plugin root without hooks/lib (a release tree) copies nothing.
 copy_hook_libraries() {
-  mkdir -p "$1/hooks" && cp -R "$REPO_ROOT/hooks/lib" "$1/hooks/lib"
+  mkdir -p "$1/hooks" || return 1
+  [ -d "$HOOKS/lib" ] || return 0
+  cp -R "$HOOKS/lib" "$1/hooks/lib"
 }
 
 reset_env() {
-  CLAUDE_PLUGIN_ROOT=$REPO_ROOT
+  CLAUDE_PLUGIN_ROOT=$PLUGIN_ROOT
   CLAUDE_PROJECT_DIR=$FIXTURE_PROJECT
   HOME=$FIXTURE_HOME
   export CLAUDE_PLUGIN_ROOT CLAUDE_PROJECT_DIR
@@ -382,7 +422,7 @@ receipt_payload() {
 
 field_of() {
   (
-    . "$HOOKS/lib/payload.sh"
+    . "$REPO_ROOT/hooks/lib/payload.sh"
     PAYLOAD=$1
     payload_field "$2" || printf '<absent>'
   )
@@ -390,7 +430,7 @@ field_of() {
 
 bool_of() {
   (
-    . "$HOOKS/lib/payload.sh"
+    . "$REPO_ROOT/hooks/lib/payload.sh"
     PAYLOAD=$1
     if payload_bool "$2"; then printf 'true'; else printf 'false'; fi
   )
@@ -398,14 +438,14 @@ bool_of() {
 
 first_line_of() {
   (
-    . "$HOOKS/lib/payload.sh"
+    . "$REPO_ROOT/hooks/lib/payload.sh"
     payload_first_line "$1"
   )
 }
 
 config_query() {
   (
-    . "$HOOKS/lib/config.sh"
+    . "$REPO_ROOT/hooks/lib/config.sh"
     guild_config_load
     "$@"
   )
@@ -453,6 +493,7 @@ describe 'payload_bool: false'
 expect_equal 'false' "$(bool_of '{"stop_hook_active":false}' stop_hook_active)"
 describe 'payload_first_line: skips blank lines and trims'
 expect_equal 'verified: ok' "$(first_line_of "${NL}   ${NL}  verified: ok  ${NL}next")"
+
 # ---------------------------------------------------------------- shared cases
 
 for case_file in "$TESTS_DIR"/cases/*.cases; do
@@ -467,6 +508,51 @@ missing_case_files=$(for twin_script in "$HOOKS"/*.ps1; do
   [ -f "$TESTS_DIR/cases/${twin_name%.ps1}.cases" ] || printf '%s\n' "$twin_name"
 done)
 expect_equal '' "$missing_case_files"
+
+# ---------------------------------------------------------------- hooks.json wiring
+
+# Prints every hooks/<name>.sh that a hooks.json command names, one per line.
+hooks_json_scripts() {
+  sed -n 's|.*/hooks/\([A-Za-z0-9_-]*\.sh\).*|\1|p' "$HOOKS/hooks.json"
+}
+
+# Prints every hooks/<name>.ps1 that a hooks.json command names, one per line.
+hooks_json_twins() {
+  sed -n 's|.*/hooks/\([A-Za-z0-9_-]*\.ps1\).*|\1|p' "$HOOKS/hooks.json"
+}
+
+# Counts the commands of the exact two-line polyglot shape: line 1 execs the sh script (so sh
+# never reads line 2), line 2 runs the .ps1 twin with the call operator and the same arguments
+# (PowerShell, where exec is not a command, runs it and exits with its status).
+count_polyglot_commands() {
+  grep -c '"command": "exec sh \\"${CLAUDE_PLUGIN_ROOT}/hooks/\([A-Za-z0-9_-]*\)\.sh\\"\([^"\\]*\)\\n& \\"${CLAUDE_PLUGIN_ROOT}/hooks/\1\.ps1\\"\2; exit \$LASTEXITCODE",*$' "$HOOKS/hooks.json"
+}
+
+# SCRIPT...: prints every name with no file under hooks/.
+missing_hook_files() {
+  while IFS= read -r wired_script; do
+    [ -f "$HOOKS/$wired_script" ] || printf '%s\n' "$wired_script"
+  done
+}
+
+describe 'hooks.json: every command runs an existing sh script'
+expect_equal '' "$(hooks_json_scripts | missing_hook_files)"
+describe 'hooks.json: eight script references found'
+expect_equal '8' "$(($(hooks_json_scripts | wc -l)))"
+describe 'hooks.json: every command names an existing PowerShell twin'
+expect_equal '' "$(hooks_json_twins | missing_hook_files)"
+describe 'hooks.json: eight commands, all the sh/PowerShell polyglot'
+expect_equal '8 8' "$(grep -c '"command":' "$HOOKS/hooks.json") $(count_polyglot_commands)"
+describe 'hooks.json: render-agents wired once on SessionStart and once on UserPromptSubmit'
+expect_equal '2' "$(hooks_json_scripts | grep -c '^render-agents\.sh$')"
+describe 'hooks.json: no pwsh -File line'
+expect_equal '0' "$(grep -c 'pwsh -NoProfile -File' "$HOOKS/hooks.json")"
+describe 'hooks.json: no shell field'
+expect_equal '0' "$(grep -c '"shell"' "$HOOKS/hooks.json")"
+
+# The coded cases below load hooks/lib or need files only the repository holds; a plugin root
+# under test stops after the shared cases and the layout checks above.
+[ "$PLUGIN_ROOT_GIVEN" = no ] || finish
 
 # ---------------------------------------------------------------- emoji-scan
 
@@ -757,46 +843,7 @@ run_context render-agents.sh
 expect_equal '' "$RUN_STDOUT$(agents_changes)"
 reset_env
 
-# ---------------------------------------------------------------- hooks.json wiring
-
-# Prints every hooks/<name>.sh that a hooks.json command names, one per line.
-hooks_json_scripts() {
-  sed -n 's|.*/hooks/\([A-Za-z0-9_-]*\.sh\).*|\1|p' "$HOOKS/hooks.json"
-}
-
-# Prints every hooks/<name>.ps1 that a hooks.json command names, one per line.
-hooks_json_twins() {
-  sed -n 's|.*/hooks/\([A-Za-z0-9_-]*\.ps1\).*|\1|p' "$HOOKS/hooks.json"
-}
-
-# Counts the commands of the exact two-line polyglot shape: line 1 execs the sh script (so sh
-# never reads line 2), line 2 runs the .ps1 twin with the call operator and the same arguments
-# (PowerShell, where exec is not a command, runs it and exits with its status).
-count_polyglot_commands() {
-  grep -c '"command": "exec sh \\"${CLAUDE_PLUGIN_ROOT}/hooks/\([A-Za-z0-9_-]*\)\.sh\\"\([^"\\]*\)\\n& \\"${CLAUDE_PLUGIN_ROOT}/hooks/\1\.ps1\\"\2; exit \$LASTEXITCODE",*$' "$HOOKS/hooks.json"
-}
-
-# SCRIPT...: prints every name with no file under hooks/.
-missing_hook_files() {
-  while IFS= read -r wired_script; do
-    [ -f "$HOOKS/$wired_script" ] || printf '%s\n' "$wired_script"
-  done
-}
-
-describe 'hooks.json: every command runs an existing sh script'
-expect_equal '' "$(hooks_json_scripts | missing_hook_files)"
-describe 'hooks.json: eight script references found'
-expect_equal '8' "$(($(hooks_json_scripts | wc -l)))"
-describe 'hooks.json: every command names an existing PowerShell twin'
-expect_equal '' "$(hooks_json_twins | missing_hook_files)"
-describe 'hooks.json: eight commands, all the sh/PowerShell polyglot'
-expect_equal '8 8' "$(grep -c '"command":' "$HOOKS/hooks.json") $(count_polyglot_commands)"
-describe 'hooks.json: render-agents wired once on SessionStart and once on UserPromptSubmit'
-expect_equal '2' "$(hooks_json_scripts | grep -c '^render-agents\.sh$')"
-describe 'hooks.json: no pwsh -File line'
-expect_equal '0' "$(grep -c 'pwsh -NoProfile -File' "$HOOKS/hooks.json")"
-describe 'hooks.json: no shell field'
-expect_equal '0' "$(grep -c '"shell"' "$HOOKS/hooks.json")"
+# ---------------------------------------------------------------- release-tree checker
 
 # Prints the pre-fix replace_all line of session-context.sh, the shape the validator rejects.
 nested_quote_sample() {
@@ -810,7 +857,89 @@ expect_equal '' "$(sh "$REPO_ROOT/tools/check-release-tree.sh" --nested-quotes "
 describe 'hooks tree: the nested-quote check flags the pre-fix replace_all line'
 expect_equal '1' "$(($(nested_quote_sample | sh "$REPO_ROOT/tools/check-release-tree.sh" --nested-quotes | wc -l)))"
 
+# Builds a scratch tree whose hooks/hooks.json runs git-guard.sh and git-guard.ps1 on
+# PreToolUse; sets CHECKED_TREE.
+new_checked_tree() {
+  new_scratch_dir
+  CHECKED_TREE=$SCRATCH_DIR
+  mkdir -p "$CHECKED_TREE/hooks"
+  printf '%s\n' '{' '  "hooks": {' '    "PreToolUse": [' \
+    '      { "hooks": [{ "type": "command", "command": "sh hooks/git-guard.sh; pwsh hooks/git-guard.ps1" }] }' \
+    '    ]' '  }' '}' >"$CHECKED_TREE/hooks/hooks.json"
+}
+
+# Runs the release-tree checker over CHECKED_TREE, then removes the tree; sets CHECK_EXIT and
+# CHECK_OUTPUT.
+run_release_check() {
+  CHECK_OUTPUT=$(sh "$REPO_ROOT/tools/check-release-tree.sh" "$CHECKED_TREE" 2>&1)
+  CHECK_EXIT=$?
+  rm -rf "$CHECKED_TREE"
+}
+
+# NAME FILE LINE RULE: a tree whose FILE (relative to the tree) holds LINE as its line 2 makes
+# the checker exit non-zero and print `./FILE:2: RULE`.
+expect_release_violation() {
+  describe "check-release-tree: $1"
+  new_checked_tree
+  printf '%s\n' '# planted' "$3" >"$CHECKED_TREE/$2"
+  run_release_check
+  [ "$CHECK_EXIT" -ne 0 ] || { fail "exit 0, want non-zero; output: $CHECK_OUTPUT"; return 0; }
+  contains "$CHECK_OUTPUT" "./$2:2: $4" || { fail "output lacks [./$2:2: $4]: $CHECK_OUTPUT"; return 0; }
+  pass
+}
+
+expect_release_violation 'dot-source of an expression' hooks/loader.ps1 '.($root + "x")' dot-source
+expect_release_violation 'dot-source of a variable path' hooks/loader.ps1 '. $path' dot-source
+expect_release_violation 'Import-Module' hooks/loader.ps1 'Import-Module Foo' Import-Module
+expect_release_violation 'environment read with a non-literal name' hooks/loader.ps1 \
+  '$v = [Environment]::GetEnvironmentVariable($name)' 'environment read without a literal name'
+expect_release_violation 'whole-environment read' hooks/loader.ps1 \
+  '$all = [Environment]::GetEnvironmentVariables()' 'whole-environment read'
+expect_release_violation 'hook naming defaults.conf' hooks/reader.sh '# reads config/defaults.conf' 'names defaults.conf'
+expect_release_violation 'hook naming hooks/lib' hooks/reader.ps1 '# loads hooks/lib/config.ps1' 'names hooks/lib/'
+expect_release_violation 'PreToolUse [System.Console]::Out.Write' hooks/git-guard.ps1 \
+  '[System.Console]::Out.Write("x")' 'PreToolUse stdout writer'
+expect_release_violation 'PreToolUse $Host.UI.Write' hooks/git-guard.ps1 '$Host.UI.Write("x")' 'PreToolUse stdout writer'
+expect_release_violation 'PreToolUse echo' hooks/git-guard.ps1 'echo x' 'PreToolUse stdout writer'
+expect_release_violation 'PreToolUse Write-Output' hooks/git-guard.ps1 'Write-Output x' 'PreToolUse stdout writer'
+expect_release_violation 'PreToolUse ps1 backslash' hooks/git-guard.ps1 '$p = "a\b"' 'PreToolUse backslash'
+expect_release_violation 'PreToolUse ps1 backtick' hooks/git-guard.ps1 '$tab = "`t"' 'PreToolUse backtick'
+expect_release_violation 'PreToolUse ps1 percent' hooks/git-guard.ps1 '$r = 5 % 2' 'PreToolUse %'
+expect_release_violation 'PreToolUse ps1 -f operator' hooks/git-guard.ps1 '$s = "{0}" -f 1' 'PreToolUse -f operator'
+expect_release_violation 'PreToolUse ps1 decision word' hooks/git-guard.ps1 '$decision = "allow"' 'PreToolUse decision word'
+expect_release_violation 'call operator on an expression' hooks/loader.ps1 "& (\$root + 'x')" 'call operator'
+expect_release_violation 'iex as a command word' hooks/loader.ps1 'iex $s' Invoke-Expression
+expect_release_violation 'iex after =' hooks/loader.ps1 '$x = iex $s' Invoke-Expression
+expect_release_violation 'iex followed by (' hooks/loader.ps1 "iex('x')" Invoke-Expression
+expect_release_violation '[scriptblock]::Create' hooks/loader.ps1 '$b = [scriptblock]::Create($s)' '[scriptblock]::Create'
+expect_release_violation 'Invoke-Command' hooks/loader.ps1 'Invoke-Command -ScriptBlock $b' Invoke-Command
+expect_release_violation 'Env: provider read' hooks/loader.ps1 'Get-ChildItem Env:' 'Env: provider read'
+expect_release_violation 'built Env: path' hooks/loader.ps1 "\$p = 'env:' + \$n" 'built Env: path'
+expect_release_violation 'printenv command' hooks/reader.sh 'printenv HOME' 'environment command'
+expect_release_violation 'env after then' hooks/reader.sh 'then env' 'environment command'
+expect_release_violation 'PreToolUse Write-Warning' hooks/git-guard.ps1 'Write-Warning hi' 'PreToolUse stdout writer'
+expect_release_violation 'PreToolUse write command word' hooks/git-guard.ps1 "write 'x'" 'PreToolUse stdout writer'
+expect_release_violation 'PreToolUse write followed by (' hooks/git-guard.ps1 "write('x')" 'PreToolUse stdout writer'
+expect_release_violation 'PreToolUse Tee-Object' hooks/git-guard.ps1 'Tee-Object x' 'PreToolUse stdout writer'
+expect_release_violation 'PreToolUse write after =' hooks/git-guard.ps1 '$x = write 1' 'PreToolUse stdout writer'
+expect_release_violation 'dot-source after =' hooks/loader.ps1 '$x = . $p' dot-source
+expect_release_violation 'dot-source after {' hooks/loader.ps1 '{ . $p }' dot-source
+
+describe 'check-release-tree: a line reports each rule once'
+new_checked_tree
+printf '%s\n' '# planted' 'iex $s; Invoke-Expression $t' >"$CHECKED_TREE/hooks/loader.ps1"
+run_release_check
+expect_equal '1' "$(printf '%s\n' "$CHECK_OUTPUT" | grep -c -F './hooks/loader.ps1:2: Invoke-Expression')"
+
+describe 'check-release-tree: clean tree passes (member access and calls, decimal, $echo, &&, literal reads)'
+new_checked_tree
+printf '%s\n' '$a.b' '.5 + 1' '$echo = 1' '[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding' \
+  "\$name = [Environment]::GetEnvironmentVariable('LITERAL')" "\$read = [Environment]::GetEnvironmentVariable( 'HOME')" \
+  "[Console]::Error.Write('x')" "\$o.Write('x')" '$a && $b' '$h = $env:HOME' 'Invoke-EmojiScan' >"$CHECKED_TREE/hooks/git-guard.ps1"
+printf '%s\n' 'environment' 'root="${CLAUDE_PLUGIN_ROOT}"' >"$CHECKED_TREE/hooks/clean.sh"
+run_release_check
+expect_equal '0 []' "$CHECK_EXIT [$CHECK_OUTPUT]"
+
 # ---------------------------------------------------------------- summary
 
-printf '%s passed, %s failed\n' "$PASSED" "$FAILED"
-[ "$FAILED" -eq 0 ]
+finish
