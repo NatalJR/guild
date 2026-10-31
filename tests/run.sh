@@ -938,6 +938,25 @@ expect_release_violation 'bare plugin root' hooks/reader.sh '[ -d "$CLAUDE_PLUGI
 expect_release_violation 'braced bare plugin root' hooks/reader.sh '[ -d "${CLAUDE_PLUGIN_ROOT}" ]' 'bare plugin root'
 expect_release_violation 'plugin root as a printf argument' hooks/reader.sh \
   "x=\$(printf '%s' \"\$CLAUDE_PLUGIN_ROOT\")" 'bare plugin root'
+expect_release_violation 'copy of the plugin root' hooks/reader.sh 'root="$CLAUDE_PLUGIN_ROOT/"' 'copy of the plugin root'
+expect_release_violation 'braced copy of the plugin root' hooks/reader.sh 'root="${CLAUDE_PLUGIN_ROOT}/"' \
+  'copy of the plugin root'
+expect_release_violation 'unquoted copy of the plugin root' hooks/reader.sh 'root=$CLAUDE_PLUGIN_ROOT/' \
+  'copy of the plugin root'
+expect_release_violation 'copy of the plugin root, slash after the quote' hooks/reader.sh \
+  'root="$CLAUDE_PLUGIN_ROOT"/' 'copy of the plugin root'
+expect_release_violation 'operator expansion copy of the plugin root' hooks/reader.sh \
+  'root=${CLAUDE_PLUGIN_ROOT%/}' 'copy of the plugin root'
+expect_release_violation 'bracket in single-quoted text' hooks/reader.sh "msg='see (above)'" \
+  'bracket in single-quoted text'
+expect_release_violation 'brace pair in single-quoted text' hooks/reader.sh "msg='a {b}'" \
+  'bracket in single-quoted text'
+expect_release_violation 'closing parenthesis in single-quoted text' hooks/reader.sh "msg='a b)'" \
+  'bracket in single-quoted text'
+expect_release_violation 'closing brace in single-quoted text' hooks/reader.sh "msg='a }'" \
+  'bracket in single-quoted text'
+expect_release_violation 'doubled backslash in single-quoted text' hooks/reader.sh "p=\$(sed 's|\\\\|/|g')" \
+  'doubled backslash in single-quoted text'
 
 describe 'check-release-tree: a line reports each rule once'
 new_checked_tree
@@ -945,7 +964,7 @@ printf '%s\n' '# planted' 'iex $s; Invoke-Expression $t' >"$CHECKED_TREE/hooks/l
 run_release_check
 expect_equal '1' "$(printf '%s\n' "$CHECK_OUTPUT" | grep -c -F './hooks/loader.ps1:2: Invoke-Expression')"
 
-describe 'check-release-tree: clean tree passes (member access and calls, decimal, $echo, &&, literal reads, dot near-misses)'
+describe 'check-release-tree: clean tree passes (member access and calls, decimal, $echo, &&, literal reads, dot near-misses, quoted brackets, plugin root substitution)'
 new_checked_tree
 printf '%s\n' '$a.b' '.5 + 1' '$echo = 1' '[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding' \
   "\$name = [Environment]::GetEnvironmentVariable('LITERAL')" "\$read = [Environment]::GetEnvironmentVariable( 'HOME')" \
@@ -953,7 +972,10 @@ printf '%s\n' '$a.b' '.5 + 1' '$echo = 1' '[Console]::OutputEncoding = New-Objec
 printf '%s\n' 'environment' 'dir=./x' 'dir=..' 'n=.5' 'name=${file%.*}' \
   'x = y "." z' 'x=${d:-./y}' 'x=${d%.*}' 'l=${1%%x*}; t=${1#"$l"}' 'p="${a}${b}"' 'q=${a%x}/${b#y}' \
   '[ -n "${CLAUDE_PLUGIN_ROOT:-}" ]' '[ -d "$CLAUDE_PLUGIN_ROOT/hooks" ]' 'x="${CLAUDE_PLUGIN_ROOT}/agents"' \
-  '[ -n "${CLAUDE_PLUGIN_ROOT+set}" ]' >"$CHECKED_TREE/hooks/clean.sh"
+  '[ -n "${CLAUDE_PLUGIN_ROOT+set}" ]' 'has_root=${CLAUDE_PLUGIN_ROOT:+set}' 'x=${CLAUDE_PLUGIN_ROOT+1}' \
+  '(main "$@") 2>/dev/null' 'x="$(cmd)"' "printf '%s\\n' \"\$x\"" \
+  "plugin_root=\$(printf '%s' \"\$CLAUDE_PLUGIN_ROOT/\" | tr -s /)" "x=\"don't (x)\"" "x=\"\\\"'(x)\"" \
+  "# see 'a (b)'" "x=1  # it's (fine)" "echo don\\'t \"(ok)\"" >"$CHECKED_TREE/hooks/clean.sh"
 run_release_check
 expect_equal '0 []' "$CHECK_EXIT [$CHECK_OUTPUT]"
 

@@ -21,6 +21,12 @@
 # - `$CLAUDE_PLUGIN_ROOT` or `${CLAUDE_PLUGIN_ROOT}`, quoted or not, not immediately followed by
 #   `/`; the forms `${CLAUDE_PLUGIN_ROOT:-...}`, `${CLAUDE_PLUGIN_ROOT-...}`,
 #   `${CLAUDE_PLUGIN_ROOT+...}` and `${CLAUDE_PLUGIN_ROOT:+...}` stay allowed
+# - an assignment whose whole value is the plugin root, with or without braces, double quotes or
+#   a trailing slash (`root="$CLAUDE_PLUGIN_ROOT/"`), or a single operator expansion of it
+#   (`root=${CLAUDE_PLUGIN_ROOT%/}`); a command substitution is not a copy
+# - a `(`, `)`, `{` or `}` inside a single-quoted span, and two consecutive backslashes inside one;
+#   spans are found per line (a `'` outside quotes opens one, a `"` opens a double-quoted span,
+#   and outside single quotes a backslash escapes the next character); comments are skipped
 # - .ps1 (any case): a dot-source (a lone `.` at the line start or after `{`, `;`, `(`, `|` or
 #   `=`, then optional blanks and `(`, `$`, a quote, a slash, a backslash or `~`, or blanks and a
 #   path character), Import-Module, the call operator `&` followed by `(`, `$` or a quote,
@@ -94,8 +100,28 @@ shell_rules() {
       bare_dot = "(^|[^A-Za-z0-9_])[A-Za-z_][A-Za-z0-9_]*=([.]|" dq "[.]" dq "|" q "[.]" q ")([ \t;)&|]|$)"
       dot_default = "[$][{][A-Za-z_][A-Za-z0-9_]*:?-[.][}]"
       bare_plugin_root = "[$](CLAUDE_PLUGIN_ROOT([^A-Za-z0-9_/]|$)|[{]CLAUDE_PLUGIN_ROOT[}]([^/]|$))"
+      plugin_root_copy = "(^|[^A-Za-z0-9_])[A-Za-z_][A-Za-z0-9_]*=" dq "?[$]([{]CLAUDE_PLUGIN_ROOT((:?[-=?]|[%#])[^}]*)?[}]|CLAUDE_PLUGIN_ROOT)/?" dq "?/?([ \t;)&|]|$)"
     }
     function report(rule) { print FILENAME ":" FNR ": " rule }
+    # LINE: the text of its single-quoted spans, joined by blanks so two spans never touch. Quoting
+    # follows nested_quotes: outside single quotes a backslash escapes the next character, and a
+    # `#` at a word start outside quotes ends the scan; a span still open at the line end runs to it.
+    # Per line on purpose: brackets in a multi-line single-quoted program (git-guard.sh
+    # GUARD_PROGRAM) are out of scope, since that hook validated clean with them.
+    function single_quoted_text(line,   i, c, in_single, in_double, previous, text) {
+      in_single = 0; in_double = 0; previous = " "; text = ""
+      for (i = 1; i <= length(line); i++) {
+        c = substr(line, i, 1)
+        if (in_single) { if (c == q) { in_single = 0; text = text " " } else text = text c; previous = c; continue }
+        if (c == "\\") { i++; previous = "x"; continue }
+        if (in_double) { if (c == dq) in_double = 0 }
+        else if (c == q) in_single = 1
+        else if (c == dq) in_double = 1
+        else if (c == "#" && (i == 1 || previous == " " || previous == "\t" || previous == ";")) break
+        previous = c
+      }
+      return text
+    }
     # LINE: a `${` opened while an earlier expansion on the line is still open; a `}` closes the
     # innermost open expansion, and braces without a `$` before them never open one.
     function nests_expansion(line,   i, c, depth) {
@@ -117,7 +143,14 @@ shell_rules() {
     index($0, "${!") { report("indirect expansion ${!") }
     $0 ~ bare_dot || $0 ~ dot_default { report("bare dot value") }
     $0 ~ bare_plugin_root { report("bare plugin root") }
+    # The validator holds a plain copy of the plugin root later joined into a file path.
+    $0 ~ plugin_root_copy { report("copy of the plugin root") }
     nests_expansion($0) { report("nested parameter expansion") }
+    # The validator holds a bracket in single-quoted text (messages, grep patterns, sed pieces).
+    # The class keeps the two braces apart: find -exec takes an adjacent pair as the file name.
+    single_quoted_text($0) ~ /[{()}]/ { report("bracket in single-quoted text") }
+    # The validator holds a doubled backslash in single-quoted text (a sed program like s|x|/|g).
+    index(single_quoted_text($0), "\\\\") { report("doubled backslash in single-quoted text") }
   ' {} +
 }
 
